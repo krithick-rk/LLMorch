@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llmorch"
+version = "0.1.0"
+description = "LLMorch: Multi-Agent Vulnerability Research & Hardware Security Orchestration Platform"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+llmorch = "llmorch.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*"]

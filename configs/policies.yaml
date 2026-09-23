@@ -1,0 +1,13 @@
+agent_policy:
+  min_agents: 1
+  max_agents: 4
+  adaptive: true
+
+security_policy:
+  allow_external_network: false
+  read_only_repository_mount: false
+  isolated_workspace: true
+
+task_policy:
+  max_retries: 3
+  default_timeout_seconds: 3600

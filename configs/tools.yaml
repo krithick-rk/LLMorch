@@ -1,0 +1,11 @@
+tools:
+  allowed_tools:
+    - grep
+    - find
+    - git
+    - python3
+    - pytest
+  blocked_tools:
+    - rm -rf /
+    - curl
+    - wget

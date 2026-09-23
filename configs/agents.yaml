@@ -1,0 +1,80 @@
+agents:
+  - id: agent-agy-01
+    enabled: true
+    provider: antigravity
+    interface: cli
+    model: runtime-resolved
+    capabilities:
+      - repository_analysis
+      - code_analysis
+      - rtl_analysis
+      - software_analysis
+      - debugging
+      - shell_execution
+      - test_generation
+      - reproducer_generation
+      - static_analysis
+      - documentation_analysis
+      - security_review
+    concurrency_limit: 1
+    adapter: agy
+
+  - id: agent-claude-01
+    enabled: true
+    provider: anthropic
+    interface: cli
+    model: runtime-resolved
+    capabilities:
+      - repository_analysis
+      - code_analysis
+      - rtl_analysis
+      - software_analysis
+      - debugging
+      - shell_execution
+      - test_generation
+      - reproducer_generation
+      - static_analysis
+      - documentation_analysis
+      - security_review
+    concurrency_limit: 1
+    adapter: claude
+
+  - id: agent-codex-01
+    enabled: true
+    provider: openai
+    interface: cli
+    model: runtime-resolved
+    capabilities:
+      - repository_analysis
+      - code_analysis
+      - rtl_analysis
+      - software_analysis
+      - debugging
+      - shell_execution
+      - test_generation
+      - reproducer_generation
+      - static_analysis
+      - documentation_analysis
+      - security_review
+    concurrency_limit: 1
+    adapter: codex
+
+  - id: agent-fourth-01
+    enabled: true
+    provider: auxiliary
+    interface: cli
+    model: runtime-resolved
+    capabilities:
+      - repository_analysis
+      - code_analysis
+      - rtl_analysis
+      - software_analysis
+      - debugging
+      - shell_execution
+      - test_generation
+      - reproducer_generation
+      - static_analysis
+      - documentation_analysis
+      - security_review
+    concurrency_limit: 1
+    adapter: codex
