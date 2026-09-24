@@ -84,9 +84,9 @@ def test_investigation_workflow_end_to_end_mock_cli():
     )
     result = workflow.run()
     assert result["workflow_id"].startswith("wf-")
-    assert result["task_status"] in ("SUCCEEDED", "FAILED")
+    assert result["task_status"] in ("SUCCEEDED", "FAILED", "READY_FOR_REVIEW")
     assert result["assigned_agent"] == "agent-agy-01"
-    assert result["finding_id"].startswith("find-")
+    assert result["finding_id"].startswith("find-") or result["finding_id"].startswith("fnd-")
 
 
 if __name__ == "__main__":

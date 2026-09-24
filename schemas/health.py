@@ -4,7 +4,7 @@ LLMorch Data Contracts - Agent Health & Quota State
 
 from enum import Enum
 from typing import Optional, Union, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 
@@ -38,7 +38,7 @@ class AgentUsageStatus(BaseModel):
     total_quota: Optional[float] = Field(default=None, description="Total quota limit, or None if unknown")
     quota_reset_time: Optional[datetime] = Field(default=None, description="Reset timestamp for quota, or None if unknown")
     current_load: int = Field(default=0, description="Current concurrent tasks being executed")
-    last_seen: datetime = Field(default_factory=datetime.utcnow, description="Last heart-beat or communication timestamp")
-    health_timestamp: datetime = Field(default_factory=datetime.utcnow, description="Timestamp when health was recorded")
+    last_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Last heart-beat or communication timestamp")
+    health_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp when health was recorded")
     details: Dict[str, Any] = Field(default_factory=dict, description="Additional health diagnostic details")
     schema_version: str = Field(default="1.0.0", description="Contract schema version")

@@ -4,7 +4,7 @@ LLMorch Data Contracts - Phase 7 File Classification & Symlink Schemas
 
 from enum import Enum
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -56,4 +56,4 @@ class FileClassificationRecord(BaseModel):
     is_symlink: bool = Field(default=False, description="True if symlink")
     is_secret: bool = Field(default=False, description="True if secret key or credential detected")
     target_ref: Optional[str] = Field(default=None, description="If generated, source specification path")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

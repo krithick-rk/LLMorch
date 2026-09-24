@@ -921,3 +921,19 @@ class SecretQuarantineRepository:
                 )
                 for r in rows
             ]
+
+
+from .phase8_repositories import (
+    CandidateRepository,
+    ReproSpecRepository,
+    ReproducerRepository,
+    ValidationResultRepository,
+)
+from .phase9_repositories import (
+    TokenUsageRepository,
+    TokenBudgetRepository,
+    RepositoryEstimateRepository,
+    AgentSwitchRepository,
+    ModelSwitchRepository,
+    ConfigurationRepository,
+)

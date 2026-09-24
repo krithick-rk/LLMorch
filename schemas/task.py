@@ -4,7 +4,7 @@ LLMorch Data Contracts - Task Model
 
 from enum import Enum
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -74,6 +74,6 @@ class Task(BaseModel):
     acceptance_criteria: List[str] = Field(default_factory=list, description="Verifiable success conditions")
     result_ref: Optional[str] = Field(default=None, description="Reference URI/path to final task result artifact")
     schema_version: str = Field(default="1.0.0", description="Contract schema version")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Task creation timestamp")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Task creation timestamp")
     started_at: Optional[datetime] = Field(default=None, description="Task execution start timestamp")
     completed_at: Optional[datetime] = Field(default=None, description="Task completion/termination timestamp")

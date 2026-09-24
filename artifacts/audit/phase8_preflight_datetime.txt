@@ -1,0 +1,60 @@
+LLMorch Phase 8 Preflight Audit: Python 3.14 Datetime Cleanup
+================================================================
+
+Date: 2026-09-24
+Python Version: 3.14.4
+Pytest Version: 9.1.1
+Repository: /home/hackdac/Desktop/intern/LLMorch
+
+1. Commands Executed:
+--------------------
+- git grep -n "utcnow" -- "*.py"
+- python3 scripts/fix_datetime.py (automated timezone-aware migration)
+- python3 -m py_compile <all 22 modified files>
+- python3 -m pytest tests/test_schemas.py tests/test_persistence.py tests/test_state_machines.py -v
+- python3 -m pytest -q
+
+2. Results:
+----------
+- tests/test_schemas.py: 6 passed (0 warnings)
+- tests/test_persistence.py: 4 passed (0 warnings)
+- tests/test_state_machines.py: 4 passed (0 warnings)
+- Full regression suite: 145 passed in 75.16s (0 failures, 0 errors, 0 warnings)
+
+3. Warnings Comparison:
+----------------------
+- Warnings BEFORE fix: 3,289 DeprecationWarnings across Pydantic models and orchestrator
+- Warnings AFTER fix:  0 warnings (100% eliminated)
+
+4. Files Changed (22 files, 44 occurrences migrated):
+---------------------------------------------------
+- schemas/task.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- schemas/run.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- schemas/event.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- schemas/artifact.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- schemas/evidence.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- schemas/finding.py: default_factory=lambda: {"created_at": datetime.now(timezone.utc)}
+- schemas/checkpoint.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- schemas/health.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- schemas/memory.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- schemas/strategy.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- schemas/analysis_unit.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- schemas/file_classification.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- schemas/repository_intelligence.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- sandbox/workspace.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- orchestrator/state_machine.py: datetime.now(timezone.utc)
+- repository_intelligence/intake.py: Field(default_factory=lambda: datetime.now(timezone.utc))
+- memory/promotion.py: duplicate_pattern.updated_at = datetime.now(timezone.utc)
+- scheduler/failover.py: failed_run.end_time = datetime.now(timezone.utc)
+- adapters/agy_adapter.py: start_time/end_time = datetime.now(timezone.utc)
+- adapters/claude_adapter.py: start_time/end_time = datetime.now(timezone.utc)
+- adapters/codex_adapter.py: start_time/end_time = datetime.now(timezone.utc)
+- tests/test_elastic_agents.py: start_time/end_time = datetime.now(timezone.utc)
+
+5. Verification Assessment:
+--------------------------
+Timezone awareness verified.
+Pydantic ISO serialization and deserialization verified.
+SQLite text/ISO timestamp round-trip verified.
+Full test suite passing cleanly.
+PRE-FLIGHT REPAIR #1 STATUS: PASSED

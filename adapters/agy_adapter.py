@@ -12,7 +12,7 @@ import subprocess
 import signal
 import hashlib
 from typing import List, Generator, Any, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .base import BaseAgentAdapter
@@ -54,7 +54,7 @@ class AGYAdapter(BaseAgentAdapter):
             workspace_id=task.workspace_policy.allowed_paths[0] if task.workspace_policy.allowed_paths else "ws-default",
             environment_fingerprint=f"env-{hashlib.sha256(self.cli_executable.encode()).hexdigest()[:12]}",
             status=RunStatus.RUNNING,
-            start_time=datetime.utcnow()
+            start_time=datetime.now(timezone.utc)
         )
         self.active_runs[run.run_id] = run
         return run
@@ -85,7 +85,7 @@ class AGYAdapter(BaseAgentAdapter):
             stdout, stderr = process.communicate(timeout=task.budget.max_seconds)
             exit_code = process.returncode
 
-            run.end_time = datetime.utcnow()
+            run.end_time = datetime.now(timezone.utc)
             run.exit_status = exit_code
             run.status = RunStatus.SUCCEEDED if exit_code == 0 else RunStatus.FAILED
 
@@ -100,7 +100,7 @@ class AGYAdapter(BaseAgentAdapter):
         except subprocess.TimeoutExpired:
             self._kill_process_group(run.run_id)
             run.status = RunStatus.TIMEOUT
-            run.end_time = datetime.utcnow()
+            run.end_time = datetime.now(timezone.utc)
             run.failure_reason = "Execution timed out"
             return {
                 "run_id": run.run_id,
@@ -112,7 +112,7 @@ class AGYAdapter(BaseAgentAdapter):
             }
         except Exception as e:
             run.status = RunStatus.FAILED
-            run.end_time = datetime.utcnow()
+            run.end_time = datetime.now(timezone.utc)
             run.failure_reason = str(e)
             return {
                 "run_id": run.run_id,
@@ -146,7 +146,7 @@ class AGYAdapter(BaseAgentAdapter):
             if run.task_id == task_id and run.status == RunStatus.RUNNING:
                 self._kill_process_group(run_id)
                 run.status = RunStatus.CANCELLED
-                run.end_time = datetime.utcnow()
+                run.end_time = datetime.now(timezone.utc)
                 return True
         return False
 
@@ -182,23 +182,29 @@ class AGYAdapter(BaseAgentAdapter):
         locations = []
         confidence = 0.8
         status = "SUCCEEDED"
+        findings = []
 
-        # Attempt JSON parse if output is structured JSON
-        try:
-            parsed = json.loads(raw_text)
-            if isinstance(parsed, dict):
-                hypothesis = parsed.get("hypothesis", hypothesis)
-                locations = parsed.get("affected_locations", locations)
-                confidence = float(parsed.get("confidence", confidence))
-                status = parsed.get("status", status)
-        except Exception:
-            # Natural language fallback extraction
-            for line in raw_text.splitlines():
-                if "hypothesis:" in line.lower():
-                    hypothesis = line.split(":", 1)[1].strip()
-                elif "location:" in line.lower():
-                    loc_str = line.split(":", 1)[1].strip()
-                    locations.append({"file_path": loc_str})
+        parsed = {}
+        if isinstance(raw_output, dict):
+            parsed = raw_output
+        else:
+            try:
+                parsed = json.loads(raw_text)
+            except Exception:
+                # Natural language fallback extraction
+                for line in raw_text.splitlines():
+                    if "hypothesis:" in line.lower():
+                        hypothesis = line.split(":", 1)[1].strip()
+                    elif "location:" in line.lower():
+                        loc_str = line.split(":", 1)[1].strip()
+                        locations.append({"file_path": loc_str})
+
+        if isinstance(parsed, dict) and parsed:
+            hypothesis = parsed.get("hypothesis", hypothesis)
+            locations = parsed.get("affected_locations", locations)
+            confidence = float(parsed.get("confidence", confidence))
+            status = parsed.get("status", status)
+            findings = parsed.get("findings", findings)
 
         return TaskResult(
             task_id="task-unknown",
@@ -206,7 +212,8 @@ class AGYAdapter(BaseAgentAdapter):
             status=status,
             hypothesis=hypothesis,
             affected_locations=locations,
-            confidence=confidence
+            confidence=confidence,
+            findings=findings
         )
 
     def version(self) -> str:

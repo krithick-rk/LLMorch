@@ -4,7 +4,7 @@ LLMorch Data Contracts - Evidence Model
 
 from enum import Enum
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -29,7 +29,7 @@ class Evidence(BaseModel):
     agent_id: str = Field(..., description="Identifier of agent associated with evidence recording")
     artifact_id: Optional[str] = Field(default=None, description="Optional associated artifact identifier")
     source_type: EvidenceSourceType = Field(..., description="Source classification")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Timestamp evidence was recorded")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp evidence was recorded")
     tool: Optional[str] = Field(default=None, description="Tool name if tool output")
     command: Optional[str] = Field(default=None, description="Exact command string executed")
     raw_hash: str = Field(..., description="Hash digest of raw unparsed output")

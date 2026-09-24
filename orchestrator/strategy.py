@@ -10,7 +10,7 @@ import json
 
 from schemas.task import Task
 from schemas.agent import Agent
-from schemas.health import AgentHealthState
+from schemas.health import AgentHealthState, AgentQuotaStatus
 from schemas.strategy import StrategyDecision, AgentAssignment
 from registry.agent_registry import AgentRegistry
 
@@ -85,7 +85,11 @@ class StrategyEngine:
 
         for agent in all_agents:
             # Hard Constraint 1: Availability & Health
-            if not agent.availability or agent.health != AgentHealthState.AVAILABLE:
+            if (
+                not agent.availability
+                or agent.health not in (AgentHealthState.AVAILABLE, AgentHealthState.DEGRADED)
+                or getattr(agent, "quota_status", None) == AgentQuotaStatus.EXHAUSTED
+            ):
                 excluded.append(f"{agent.agent_id} (Health: {agent.health.value}, Avail: {agent.availability})")
                 continue
 
@@ -117,8 +121,8 @@ class StrategyEngine:
         # 2. Hard Constraint Filtering
         eligible_agents, candidate_ids, excluded_ids = self.filter_candidates(required_caps)
 
-        if preferred_agent_ids:
-            eligible_agents.sort(key=lambda a: 0 if a.agent_id in preferred_agent_ids else 1)
+        if preferred_agent_ids is not None:
+            eligible_agents = [a for a in eligible_agents if a.agent_id in preferred_agent_ids]
 
         # 3. Extract Signals
         signals = self.extract_signals(task, scoped_paths, precheck_count)
@@ -139,10 +143,10 @@ class StrategyEngine:
         elif complexity == "LOW" and security == "LOW":
             target_count = 1
             reasons.append("Low complexity single-component task; 1 agent sufficient")
-        elif complexity in ("HIGH", "CRITICAL") and parallelism == "HIGH" and len(eligible_agents) >= 4:
+        elif complexity in ("HIGH", "CRITICAL") and parallelism == "HIGH":
             target_count = 4
             reasons.append("Critical complexity, high parallelism, and multi-domain scope; 4 agents selected")
-        elif (complexity == "HIGH" or security == "HIGH" or uncertainty == "HIGH") and len(eligible_agents) >= 3:
+        elif (complexity == "HIGH" or security == "HIGH" or uncertainty == "HIGH"):
             target_count = 3
             reasons.append("High complexity/security sensitivity with multiple eligible capabilities; 3 agents selected")
         elif security in ("HIGH", "MEDIUM") or uncertainty in ("HIGH", "MEDIUM"):
@@ -154,6 +158,7 @@ class StrategyEngine:
 
         # 5. Cap by Available Eligible Capacity & System Policy Limit
         chosen_count = min(target_count, len(eligible_agents), self.max_agents_limit)
+        chosen_count = max(chosen_count, 0)
         chosen_agents = eligible_agents[:chosen_count]
         chosen_agent_ids = [a.agent_id for a in chosen_agents]
 
@@ -163,7 +168,7 @@ class StrategyEngine:
         # 6. Create StrategyDecision Record
         decision = StrategyDecision(
             task_id=task.task_id,
-            chosen_agent_count=chosen_count if chosen_count > 0 else 1,
+            chosen_agent_count=chosen_count,
             selected_agents=chosen_agent_ids,
             candidate_agents=candidate_ids,
             excluded_agents=excluded_ids,

@@ -59,6 +59,33 @@ from .errors import (
     InvalidStateTransitionError,
     PolicyBlockedError,
 )
+from .candidate import Candidate, CandidatePriority
+from .reprospec import ReproSpec
+from .reproducer import (
+    Reproducer,
+    ReproducerManifest,
+    ReproducerState,
+    ReproducerType,
+    Harness,
+    ReproducerInput,
+)
+from .sandbox import (
+    SandboxMode,
+    SandboxStatus,
+    SandboxPolicy,
+    ExecutionTrace,
+    SandboxResult,
+)
+from .validation import (
+    DeterminismClass,
+    DeterminismResult,
+    MinimizationResult,
+    ReplayComparison,
+    ValidationVerdict,
+    EnvironmentManifest,
+    ValidationRequest,
+    ValidationResult,
+)
 
 __all__ = [
     "AgentCapability",
@@ -132,4 +159,64 @@ __all__ = [
     "AdapterError",
     "InvalidStateTransitionError",
     "PolicyBlockedError",
+    "Candidate",
+    "CandidatePriority",
+    "ReproSpec",
+    "Reproducer",
+    "ReproducerManifest",
+    "ReproducerState",
+    "ReproducerType",
+    "Harness",
+    "ReproducerInput",
+    "SandboxMode",
+    "SandboxStatus",
+    "SandboxPolicy",
+    "ExecutionTrace",
+    "SandboxResult",
+    "DeterminismClass",
+    "DeterminismResult",
+    "MinimizationResult",
+    "ReplayComparison",
+    "ValidationVerdict",
+    "EnvironmentManifest",
+    "ValidationRequest",
+    "ValidationResult",
+    # Phase 9.1
+    "Model",
+    "ModelCapability",
+    "ModelSelectionMode",
+    "ModelPolicy",
+    "ModelSelectionRequest",
+    "ModelSelectionResult",
+    "TokenSource",
+    "TokenLimitStatus",
+    "TokenUsageRecord",
+    "TokenBudgetConfig",
+    "TokenAccountingSummary",
+    "RepositoryTokenEstimate",
+    "EstimationMethod",
+    "ConfidenceLevel",
+    "SystemSettings",
 ]
+
+from .model import (
+    Model,
+    ModelCapability,
+    ModelSelectionMode,
+    ModelPolicy,
+    ModelSelectionRequest,
+    ModelSelectionResult,
+)
+from .token import (
+    TokenSource,
+    TokenLimitStatus,
+    TokenUsageRecord,
+    TokenBudgetConfig,
+    TokenAccountingSummary,
+)
+from .estimation import (
+    RepositoryTokenEstimate,
+    EstimationMethod,
+    ConfidenceLevel,
+)
+from .configuration import SystemSettings

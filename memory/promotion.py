@@ -7,7 +7,7 @@ Enforces strict privacy boundaries, excluding raw paths, secrets, credentials, a
 import re
 import logging
 from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 
 from schemas.memory import (
     PatternRecord,
@@ -151,7 +151,7 @@ class PromotionEngine:
         if duplicate_pattern:
             # Merge into existing pattern record
             duplicate_pattern.observation_count += 1
-            duplicate_pattern.updated_at = datetime.utcnow()
+            duplicate_pattern.updated_at = datetime.now(timezone.utc)
             if outcome.confidence == MemoryConfidence.VALIDATED:
                 duplicate_pattern.confidence_state = MemoryConfidence.VALIDATED
             for ind in indicators:

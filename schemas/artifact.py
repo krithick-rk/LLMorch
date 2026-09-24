@@ -4,7 +4,7 @@ LLMorch Data Contracts - Artifact Model
 
 from enum import Enum
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -48,4 +48,4 @@ class Artifact(BaseModel):
     provenance: Dict[str, Any] = Field(default_factory=dict, description="Derivation tree and environment metadata")
     retention_class: RetentionClass = Field(default=RetentionClass.TASK, description="Retention policy class")
     schema_version: str = Field(default="1.0.0", description="Contract schema version")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Artifact creation timestamp")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Artifact creation timestamp")

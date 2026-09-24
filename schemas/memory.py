@@ -6,7 +6,7 @@ ResearchStrategyRecord, ResearchOutcomeRecord, MemoryRetrievalRecord, and Memory
 
 from enum import Enum
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -77,8 +77,8 @@ class PatternRecord(BaseModel):
     observation_count: int = Field(default=1, description="Number of times pattern has been observed across projects")
     version: int = Field(default=1, description="Pattern schema / evolution version")
     schema_version: str = Field(default="1.0.0", description="Contract schema version")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Record creation timestamp")
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Record last update timestamp")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Record creation timestamp")
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Record last update timestamp")
 
 
 class ProjectMemoryRecord(BaseModel):
@@ -98,7 +98,7 @@ class ProjectMemoryRecord(BaseModel):
     failed_strategies: List[str] = Field(default_factory=list, description="Failed local analysis strategies")
     evidence_refs: List[str] = Field(default_factory=list, description="References to project evidence")
     privacy_class: MemoryPrivacyClass = Field(default=MemoryPrivacyClass.PROJECT_PRIVATE, description="Always PROJECT_PRIVATE")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Creation timestamp")
 
 
 class ResearchStrategyRecord(BaseModel):
@@ -112,7 +112,7 @@ class ResearchStrategyRecord(BaseModel):
     outcome: MemoryConfidence = Field(..., description="Outcome state (VALIDATED, REJECTED, etc.)")
     relevant_conditions: List[str] = Field(default_factory=list, description="Conditions where strategy applies")
     notes: Optional[str] = Field(default=None, description="Cautionary notes or findings summary")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Creation timestamp")
 
 
 class ResearchOutcomeRecord(BaseModel):
@@ -132,7 +132,7 @@ class ResearchOutcomeRecord(BaseModel):
     rejected_steps: List[str] = Field(default_factory=list)
     evidence_refs: List[str] = Field(default_factory=list)
     is_generalizable: bool = Field(default=False, description="Flag indicating candidate for global promotion")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class MemoryRetrievalRecord(BaseModel):
@@ -159,7 +159,7 @@ class MemoryPromotionRecord(BaseModel):
     accepted: bool = Field(..., description="Whether promotion was accepted")
     rejection_reason: Optional[str] = Field(default=None, description="Reason for rejection if denied")
     sanitized_fields: List[str] = Field(default_factory=list, description="Fields that were sanitized or stripped")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class LLMApplicabilityResult(BaseModel):

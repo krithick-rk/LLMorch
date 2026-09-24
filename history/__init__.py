@@ -9,6 +9,10 @@ from .repositories import (
     RunRepository,
     CheckpointRepository,
     EventRepository,
+    CandidateRepository,
+    ReproSpecRepository,
+    ReproducerRepository,
+    ValidationResultRepository,
 )
 
 __all__ = [
@@ -18,4 +22,8 @@ __all__ = [
     "RunRepository",
     "CheckpointRepository",
     "EventRepository",
+    "CandidateRepository",
+    "ReproSpecRepository",
+    "ReproducerRepository",
+    "ValidationResultRepository",
 ]

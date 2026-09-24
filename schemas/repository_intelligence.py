@@ -4,7 +4,7 @@ LLMorch Data Contracts - Phase 7 Repository Intelligence Schemas
 
 from enum import Enum
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -41,7 +41,7 @@ class ExtendedRepositorySnapshot(BaseModel):
     metadata_systems: List[str] = Field(default_factory=list, description="Detected security metadata systems (HJSON, RACL, etc.)")
     symlink_summary: Dict[str, Any] = Field(default_factory=dict, description="Symlink audit results")
     classification_summary: Dict[str, int] = Field(default_factory=dict, description="File counts by classification")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     schema_version: str = Field(default="1.0.0")
 
     @property
@@ -101,7 +101,7 @@ class SecretQuarantineRecord(BaseModel):
     file_path: str = Field(..., description="Repository path containing secret")
     secret_type: str = Field(..., description="API_KEY, PRIVATE_KEY, PASSWORD, TOKEN, CERTIFICATE")
     redacted_preview: str = Field(..., description="Safe redacted string preview")
-    quarantined_at: datetime = Field(default_factory=datetime.utcnow)
+    quarantined_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ContextExpansionRecord(BaseModel):
@@ -112,4 +112,4 @@ class ContextExpansionRecord(BaseModel):
     reason: str = Field(..., description="Reason for expansion (e.g. missing dependency foo.h)")
     expanded_paths: List[str] = Field(default_factory=list, description="Approved additional file paths")
     status: str = Field(default="ALLOWED", description="ALLOWED or BLOCKED")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

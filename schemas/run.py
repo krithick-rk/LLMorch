@@ -4,7 +4,7 @@ LLMorch Data Contracts - Run Model
 
 from enum import Enum
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -29,7 +29,7 @@ class Run(BaseModel):
     parent_run_id: Optional[str] = Field(default=None, description="Lineage parent run ID if this run is a retry/failover attempt")
     agent_id: str = Field(..., description="Identifier of the executing agent")
     adapter_version: str = Field(default="1.0.0", description="Version of the adapter used for this run")
-    start_time: datetime = Field(default_factory=datetime.utcnow, description="Run start timestamp")
+    start_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Run start timestamp")
     end_time: Optional[datetime] = Field(default=None, description="Run completion timestamp")
     process_id: Optional[int] = Field(default=None, description="OS process ID if applicable")
     exit_status: Optional[int] = Field(default=None, description="Exit status code")

@@ -12,6 +12,7 @@ from .analysis_unit_builder import AnalysisUnitBuilder
 from .relevance import RelevanceEngine
 from .context import AgentContextGenerator
 from .service import RepositoryIntelligenceService
+from .token_estimator import estimate_repository_tokens
 
 __all__ = [
     "RepositoryTreeScanner",
@@ -24,4 +25,5 @@ __all__ = [
     "RelevanceEngine",
     "AgentContextGenerator",
     "RepositoryIntelligenceService",
+    "estimate_repository_tokens",
 ]

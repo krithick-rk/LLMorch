@@ -9,7 +9,7 @@ import hashlib
 import subprocess
 from pathlib import Path
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -21,7 +21,7 @@ class RepositorySnapshot(BaseModel):
     repository_type: str = Field(default="git", description="Repository type (git, directory, archive)")
     git_commit: Optional[str] = Field(default=None, description="Git commit hash if git repository")
     file_count: int = Field(default=0, description="Total analyzed file count")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Snapshot creation timestamp")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Snapshot creation timestamp")
     schema_version: str = Field(default="1.0.0", description="Contract schema version")
 
 
@@ -45,6 +45,7 @@ class RepositoryIntake:
         """
         suspicious_symlinks = []
         for root, dirs, files in os.walk(self.canonical_root, followlinks=False):
+            dirs[:] = [d for d in dirs if d not in {".git", "workspaces", ".venv", ".pytest_cache", "__pycache__", "build", "dist", "artifacts"}]
             for name in dirs + files:
                 item_path = Path(root) / name
                 if item_path.is_symlink():
@@ -92,11 +93,10 @@ class RepositoryIntake:
         git_commit = self.get_git_commit()
         repo_type = "git" if git_commit else "directory"
 
-        # Count total files (excluding .git)
+        # Count total files (excluding noise/internal dirs)
         file_count = 0
         for root, dirs, files in os.walk(self.canonical_root):
-            if ".git" in dirs:
-                dirs.remove(".git")
+            dirs[:] = [d for d in dirs if d not in {".git", "workspaces", ".venv", ".pytest_cache", "__pycache__", "build", "dist", "artifacts"}]
             file_count += len(files)
 
         return RepositorySnapshot(

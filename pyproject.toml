@@ -19,3 +19,7 @@ llmorch = "llmorch.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["workspaces", ".venv", "build", "dist", "artifacts"]

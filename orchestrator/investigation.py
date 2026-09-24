@@ -77,7 +77,8 @@ class InvestigationWorkflow:
         budget: float = 100.0,
         db_service: Optional[DatabaseService] = None,
         strategy_config: Optional[Dict[str, Any]] = None,
-        testing_config: Optional[Dict[str, Any]] = None
+        testing_config: Optional[Dict[str, Any]] = None,
+        custom_adapters: Optional[Dict[str, BaseAgentAdapter]] = None
     ):
         self.repo_path = repo_path
         self.target_component = target_component
@@ -105,17 +106,31 @@ class InvestigationWorkflow:
         self.promotion_engine = PromotionEngine(self.db)
         self.applicability_verifier = LLMApplicabilityVerifier(self.db)
 
-        # Initialize Adapters
-        self.adapters: Dict[str, BaseAgentAdapter] = {
-            "agent-agy-01": AGYAdapter(),
-            "agent-claude-01": ClaudeAdapter(),
-            "agent-codex-01": CodexAdapter(),
-            "agent-fourth-01": CodexAdapter(),
-        }
+        # Primary Production Adapters (AGY, Claude, Codex) or Custom Injectable Adapters
+        if custom_adapters is not None:
+            self.adapters = custom_adapters
+        else:
+            self.adapters = {
+                "agent-agy-01": AGYAdapter(),
+                "agent-claude-01": ClaudeAdapter(),
+                "agent-codex-01": CodexAdapter(),
+            }
 
         # Register Available Agents in Registry
         for agent_id, adapter in self.adapters.items():
-            provider = "antigravity" if "agy" in agent_id else ("anthropic" if "claude" in agent_id else ("openai" if "codex" in agent_id else "auxiliary"))
+            if "agy" in agent_id or "antigravity" in agent_id:
+                provider = "antigravity"
+            elif "claude" in agent_id:
+                provider = "anthropic"
+            elif "codex" in agent_id:
+                provider = "openai"
+            elif "opencode" in agent_id:
+                provider = "opencode"
+            elif "gemini" in agent_id:
+                provider = "google"
+            else:
+                provider = getattr(adapter, "provider", "auxiliary")
+
             agent = Agent(
                 agent_id=agent_id,
                 provider=provider,
@@ -123,7 +138,7 @@ class InvestigationWorkflow:
                 model="runtime-resolved",
                 capabilities=adapter.capabilities(),
                 health=adapter.health(),
-                availability=True,
+                availability=(adapter.health() == AgentHealthState.AVAILABLE),
                 adapter_version=adapter.version()
             )
             self.registry.register_agent(agent)
@@ -147,7 +162,7 @@ class InvestigationWorkflow:
         Receives retrieved global research patterns for memory-informed hypothesis generation.
         """
         agent = self.registry.get_agent(assignment.agent_id)
-        adapter = self.adapters.get(assignment.agent_id, self.adapters["agent-agy-01"])
+        adapter = self.adapters.get(assignment.agent_id) or next(iter(self.adapters.values()))
 
         child_task = Task(
             parent_task_id=root_task.task_id,
@@ -206,7 +221,7 @@ class InvestigationWorkflow:
             if res.get("status") == "RESUMED":
                 replacement_id = res["replacement_agent_id"]
                 agent = self.registry.get_agent(replacement_id)
-                adapter = self.adapters.get(replacement_id, self.adapters["agent-agy-01"])
+                adapter = self.adapters.get(replacement_id) or next(iter(self.adapters.values()))
 
         elif agent.agent_id in sim_crash:
             res = self.failover_engine.handle_failure_and_recover(
@@ -219,11 +234,28 @@ class InvestigationWorkflow:
             if res.get("status") == "RESUMED":
                 replacement_id = res["replacement_agent_id"]
                 agent = self.registry.get_agent(replacement_id)
-                adapter = self.adapters.get(replacement_id, self.adapters["agent-agy-01"])
+                adapter = self.adapters.get(replacement_id) or next(iter(self.adapters.values()))
 
         exec_res = adapter.execute_task_sync(child_task, workspace.working_directory, context_prompt)
         run = exec_res["run"]
         self.run_repo.save(run)
+
+        # Phase 9.1 Token Accounting
+        try:
+            from token_tracker.accounting import TokenTracker
+            tracker = TokenTracker(self.db)
+            tracker.record_usage(
+                task_id=child_task.task_id,
+                run_id=run.run_id,
+                agent_id=agent.agent_id,
+                model_id=getattr(agent, "current_model_id", None) or getattr(agent, "model", "runtime-resolved"),
+                stage="llm_investigation",
+                raw_input_text=context_prompt,
+                raw_output_text=exec_res.get("stdout", ""),
+                attempt_id=f"att-{child_task.retry_count}",
+            )
+        except Exception:
+            pass
 
         task_result = adapter.normalize_result(exec_res["stdout"])
 
@@ -335,10 +367,16 @@ class InvestigationWorkflow:
         )
 
         if not assignments or decision.chosen_agent_count == 0:
+            root_task, blocked_evt = TaskStateMachine.transition(
+                root_task, TaskStatus.BLOCKED, actor="orchestrator", reason="INSUFFICIENT_AGENT_CAPACITY: No eligible agents available matching task constraints"
+            )
+            self.task_repo.save(root_task)
+            self.event_repo.record(blocked_evt)
             return {
                 "error": "INSUFFICIENT_AGENT_CAPACITY",
                 "details": "No eligible agents available matching task constraints",
-                "strategy_decision": decision.model_dump()
+                "strategy_decision": decision.model_dump(),
+                "task_status": TaskStatus.BLOCKED.value
             }
 
         root_task, _ = TaskStateMachine.transition(root_task, TaskStatus.DISPATCHED, actor="orchestrator")
@@ -422,9 +460,12 @@ class InvestigationWorkflow:
             "root_task_id": root_task.task_id,
             "task_status": "READY_FOR_REVIEW",
             "chosen_agent_count": decision.chosen_agent_count,
+            "strategy_decision": decision.model_dump(),
             "assigned_agent": child_results[0]["agent_id"] if child_results else None,
             "provider": self.registry.get_agent(child_results[0]["agent_id"]).provider if (child_results and self.registry.get_agent(child_results[0]["agent_id"])) else None,
             "selected_agents": [r["agent_id"] for r in child_results],
+            "independent_hypotheses": [r["task_result"].hypothesis for r in child_results],
+            "finding_id": finding.finding_id,
             "finding_state": finding.state.value,
             "retrieved_memories_count": len(retrieved_memories),
             "applicable_patterns_count": len(applicable_patterns),

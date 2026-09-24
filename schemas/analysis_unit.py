@@ -5,7 +5,7 @@ Representing the smallest meaningful security analysis boundary in a repository.
 
 from enum import Enum
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -63,5 +63,5 @@ class AnalysisUnit(BaseModel):
     included_context: List[str] = Field(default_factory=list, description="Files/symbols included in context")
     excluded_context: List[str] = Field(default_factory=list, description="Files/secrets excluded from context")
     expansion_reason: Optional[str] = Field(default=None, description="Reason if context was expanded")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     schema_version: str = Field(default="1.0.0")

@@ -30,9 +30,17 @@ from history.repositories import (
     GlobalPatternRepository,
     ResearchStrategyRepository,
     ProjectMemoryRepository,
+    CandidateRepository,
+    ReproSpecRepository,
+    ReproducerRepository,
+    ValidationResultRepository,
 )
 from memory.service import MemoryService
 from repository_intelligence.service import RepositoryIntelligenceService
+from validator.service import IndependentValidator
+from sandbox.runner import SandboxRunner
+from schemas.sandbox import SandboxMode, SandboxPolicy
+from schemas.validation import ValidationRequest
 
 
 def _get_db(cfg_mgr: ConfigManager) -> DatabaseService:
@@ -300,14 +308,123 @@ def run_investigate(repo, target, agent=None, agents=None, agent_count_str=None,
     print(f"Promotion:      accepted={prom.get('accepted')} pattern={prom.get('pattern_id')}")
 
 
+def run_repro_list():
+    cfg_mgr = ConfigManager()
+    db = _get_db(cfg_mgr)
+    repo = ReproducerRepository(db)
+    repros = repo.list_all()
+    print("=" * 70)
+    print("LLMorch Reproducers (Phase 8 RGE)")
+    print("=" * 70)
+    if not repros:
+        print("  No reproducers found.")
+        return
+    for r in repros:
+        print(f"  {r.reproducer_id}  [{r.reproducer_type.value}]  state={r.state.value}  domain={r.manifest.domain}")
+
+
+def run_repro_inspect(reproducer_id: str):
+    cfg_mgr = ConfigManager()
+    db = _get_db(cfg_mgr)
+    repo = ReproducerRepository(db)
+    r = repo.get_by_id(reproducer_id)
+    if not r:
+        print(f"[!] Reproducer '{reproducer_id}' not found.")
+        return
+    print("=" * 70)
+    print(f"Reproducer Manifest: {r.reproducer_id}")
+    print("=" * 70)
+    manifest_data = r.manifest.model_dump()
+    print(json.dumps(manifest_data, indent=2))
+
+
+def run_repro_run(reproducer_id: str):
+    cfg_mgr = ConfigManager()
+    db = _get_db(cfg_mgr)
+    repo = ReproducerRepository(db)
+    r = repo.get_by_id(reproducer_id)
+    if not r:
+        print(f"[!] Reproducer '{reproducer_id}' not found.")
+        return
+    runner = SandboxRunner()
+    policy = SandboxPolicy(mode=SandboxMode.UNTRUSTED_REPRODUCTION, allow_network=False)
+    res = runner.execute(command=r.manifest.run_command, workspace=Path(PROJECT_ROOT), policy=policy)
+    print("=" * 70)
+    print(f"Sandbox Execution: {res.status.value}")
+    print("=" * 70)
+    print(f"Exit code:      {res.exit_code}")
+    print(f"Execution ID:   {res.trace.sandbox_execution_id}")
+    print(f"Wall time:      {res.trace.wall_time_seconds:.4f}s")
+    print(f"Stdout hash:    {res.trace.stdout_hash}")
+    print(f"Network:        {res.trace.network_policy}")
+
+
+def run_validate(reproducer_id: str):
+    cfg_mgr = ConfigManager()
+    db = _get_db(cfg_mgr)
+    r_repo = ReproducerRepository(db)
+    c_repo = CandidateRepository(db)
+    v_repo = ValidationResultRepository(db)
+    r = r_repo.get_by_id(reproducer_id)
+    if not r:
+        print(f"[!] Reproducer '{reproducer_id}' not found.")
+        return
+    c = c_repo.get_by_id(r.candidate_id)
+    if not c:
+        print(f"[!] Candidate '{r.candidate_id}' not found for reproducer.")
+        return
+    validator = IndependentValidator(db_service=db)
+    req = ValidationRequest(candidate=c, reproducer=r, repo_root=str(PROJECT_ROOT))
+    res = validator.validate(req)
+    v_repo.save(res)
+    print("=" * 70)
+    print("Independent Validator Verdict (Phase 8)")
+    print("=" * 70)
+    print(f"Validation ID:  {res.validation_id}")
+    print(f"Verdict:        {res.verdict.value}")
+    print(f"Confidence:     {res.confidence_score}")
+    print(f"Determinism:    {res.determinism.determinism_class.value} ({res.determinism.success_count}/{res.determinism.replay_count})")
+    print(f"Evidence IDs:   {len(res.supporting_evidence_ids)} records emitted")
+    print(f"Reasoning:      {res.reasoning}")
+
+
+def run_validation_inspect(validation_id: str):
+    cfg_mgr = ConfigManager()
+    db = _get_db(cfg_mgr)
+    repo = ValidationResultRepository(db)
+    res = repo.get_by_id(validation_id)
+    if not res:
+        print(f"[!] Validation result '{validation_id}' not found.")
+        return
+    print("=" * 70)
+    print(f"Validation Result: {res.validation_id}")
+    print("=" * 70)
+    print(json.dumps(res.model_dump(), default=str, indent=2))
+
+
 def main():
-    parser = argparse.ArgumentParser(description="LLMorch CLI (Phase 7)")
+    parser = argparse.ArgumentParser(description="LLMorch CLI (Phase 8)")
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("doctor")
     sub.add_parser("agents")
     sub.add_parser("config")
     sub.add_parser("version")
+
+    # Repro commands (Phase 8)
+    repro_p = sub.add_parser("repro")
+    repro_sub = repro_p.add_subparsers(dest="repro_command")
+    repro_sub.add_parser("list")
+    repro_insp = repro_sub.add_parser("inspect"); repro_insp.add_argument("reproducer_id")
+    repro_run_cmd = repro_sub.add_parser("run"); repro_run_cmd.add_argument("reproducer_id")
+
+    # Validate commands (Phase 8)
+    val_p = sub.add_parser("validate")
+    val_p.add_argument("reproducer_id")
+
+    val_insp_p = sub.add_parser("validation")
+    val_insp_sub = val_insp_p.add_subparsers(dest="validation_command")
+    v_insp = val_insp_sub.add_parser("inspect"); v_insp.add_argument("validation_id")
 
     # Repo commands
     repo_p = sub.add_parser("repo")
@@ -349,6 +466,24 @@ def main():
         run_config()
     elif args.command == "version":
         run_version()
+    elif args.command == "repro":
+        rc = args.repro_command
+        if rc == "list":
+            run_repro_list()
+        elif rc == "inspect":
+            run_repro_inspect(args.reproducer_id)
+        elif rc == "run":
+            run_repro_run(args.reproducer_id)
+        else:
+            repro_p.print_help()
+    elif args.command == "validate":
+        run_validate(args.reproducer_id)
+    elif args.command == "validation":
+        vc = args.validation_command
+        if vc == "inspect":
+            run_validation_inspect(args.validation_id)
+        else:
+            val_insp_p.print_help()
     elif args.command == "repo":
         rc = args.repo_command
         if rc == "scan":

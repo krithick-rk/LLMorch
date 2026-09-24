@@ -8,7 +8,7 @@ import os
 import json
 import logging
 from typing import Dict, Any, Optional, List, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 
 from schemas.task import Task, TaskStatus
 from schemas.run import Run, RunStatus
@@ -26,6 +26,7 @@ from history.repositories import (
     RunRepository,
     EventRepository,
     CheckpointRepository,
+    AgentSwitchRepository,
 )
 from registry.agent_registry import AgentRegistry
 from orchestrator.strategy import StrategyEngine
@@ -55,6 +56,7 @@ class FailoverEngine:
         self.run_repo = RunRepository(self.db)
         self.event_repo = EventRepository(self.db)
         self.chk_repo = CheckpointRepository(self.db)
+        self.switch_repo = AgentSwitchRepository(self.db)
         self.registry = registry
         self.workspace_mgr = workspace_mgr
         self.max_retries_per_task = max_retries_per_task
@@ -85,7 +87,7 @@ class FailoverEngine:
             failed_run.status = RunStatus.TIMEOUT if error_code == ErrorCode.AGENT_TIMEOUT else RunStatus.FAILED
             failed_run.failure_code = error_code.value
             failed_run.failure_reason = failure_reason
-            failed_run.end_time = datetime.utcnow()
+            failed_run.end_time = datetime.now(timezone.utc)
             self.run_repo.save(failed_run)
 
         # 2. Record Failure Events
@@ -262,6 +264,33 @@ class FailoverEngine:
             event_type=EventType.TASK_RESUMED,
             actor="failover_engine",
             payload={"task_id": task_id, "checkpoint_id": checkpoint.checkpoint_id}
+        ))
+
+        if hasattr(self.registry, "record_failover"):
+            self.registry.record_failover(failed_agent_id)
+
+        switch_rec = self.switch_repo.record_switch(
+            task_id=task_id,
+            run_id=new_run.run_id,
+            previous_agent_id=failed_agent_id,
+            new_agent_id=replacement_agent.agent_id,
+            reason=failure_reason,
+            switch_type="FAILOVER",
+            checkpoint_id=checkpoint.checkpoint_id,
+            resume_action="RESUME"
+        )
+
+        self.event_repo.record(Event(
+            run_id=new_run.run_id,
+            event_type=EventType.AGENT_FAILOVER_COMPLETED,
+            actor="failover_engine",
+            payload={
+                "task_id": task_id,
+                "failed_agent_id": failed_agent_id,
+                "replacement_agent_id": replacement_agent.agent_id,
+                "checkpoint_id": checkpoint.checkpoint_id,
+                "switch_id": switch_rec["switch_id"]
+            }
         ))
 
         return {

@@ -4,7 +4,7 @@ LLMorch Data Contracts - Event Model
 
 from enum import Enum
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -72,6 +72,50 @@ class EventType(str, Enum):
     CONTEXT_EXPANSION_REQUESTED = "CONTEXT_EXPANSION_REQUESTED"
     CONTEXT_EXPANSION_ALLOWED = "CONTEXT_EXPANSION_ALLOWED"
     CONTEXT_EXPANSION_BLOCKED = "CONTEXT_EXPANSION_BLOCKED"
+    # Phase 8 Reproducer & Validation Events
+    CANDIDATE_CREATED = "CANDIDATE_CREATED"
+    REPROSPEC_CREATED = "REPROSPEC_CREATED"
+    REPRODUCER_GENERATION_STARTED = "REPRODUCER_GENERATION_STARTED"
+    REPRODUCER_GENERATED = "REPRODUCER_GENERATED"
+    REPRODUCER_GENERATION_FAILED = "REPRODUCER_GENERATION_FAILED"
+    MINIMIZATION_STARTED = "MINIMIZATION_STARTED"
+    MINIMIZATION_COMPLETED = "MINIMIZATION_COMPLETED"
+    SANDBOX_STARTED = "SANDBOX_STARTED"
+    SANDBOX_COMPLETED = "SANDBOX_COMPLETED"
+    SANDBOX_FAILED = "SANDBOX_FAILED"
+    REPLAY_STARTED = "REPLAY_STARTED"
+    REPLAY_COMPLETED = "REPLAY_COMPLETED"
+    VALIDATION_STARTED = "VALIDATION_STARTED"
+    VALIDATION_COMPLETED = "VALIDATION_COMPLETED"
+    VALIDATION_CONFIRMED = "VALIDATION_CONFIRMED"
+    VALIDATION_REJECTED = "VALIDATION_REJECTED"
+    VALIDATION_INCONCLUSIVE = "VALIDATION_INCONCLUSIVE"
+    REPRODUCER_INVALIDATED = "REPRODUCER_INVALIDATED"
+    # Phase 9.1 Agent Switching & Failover Events
+    AGENT_SWITCH_REQUESTED = "AGENT_SWITCH_REQUESTED"
+    AGENT_SWITCH_APPROVED = "AGENT_SWITCH_APPROVED"
+    AGENT_SWITCH_STARTED = "AGENT_SWITCH_STARTED"
+    AGENT_SWITCH_COMPLETED = "AGENT_SWITCH_COMPLETED"
+    MODEL_SWITCH_REQUESTED = "MODEL_SWITCH_REQUESTED"
+    MODEL_SWITCH_STARTED = "MODEL_SWITCH_STARTED"
+    MODEL_SWITCH_COMPLETED = "MODEL_SWITCH_COMPLETED"
+    AGENT_FAILOVER_STARTED = "AGENT_FAILOVER_STARTED"
+    AGENT_FAILOVER_COMPLETED = "AGENT_FAILOVER_COMPLETED"
+    # Phase 9.1 Token & Budget Events
+    TOKEN_USAGE_UPDATED = "TOKEN_USAGE_UPDATED"
+    TOKEN_LIMIT_WARNING = "TOKEN_LIMIT_WARNING"
+    TOKEN_LIMIT_REACHED = "TOKEN_LIMIT_REACHED"
+    BUDGET_WARNING = "BUDGET_WARNING"
+    BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"
+    # Phase 9.1 Analyst Audit Events
+    RUN_CONFIGURATION_CHANGED = "RUN_CONFIGURATION_CHANGED"
+    AGENT_ENABLED = "AGENT_ENABLED"
+    AGENT_DISABLED = "AGENT_DISABLED"
+    TOKEN_BUDGET_CHANGED = "TOKEN_BUDGET_CHANGED"
+    TASK_BUDGET_CHANGED = "TASK_BUDGET_CHANGED"
+    REPOSITORY_SCOPE_CHANGED = "REPOSITORY_SCOPE_CHANGED"
+    ANALYSIS_POLICY_CHANGED = "ANALYSIS_POLICY_CHANGED"
+    FAILOVER_POLICY_CHANGED = "FAILOVER_POLICY_CHANGED"
 
 
 class Event(BaseModel):
@@ -81,7 +125,7 @@ class Event(BaseModel):
     """
     event_id: str = Field(default_factory=lambda: f"evt-{uuid.uuid4().hex[:12]}", description="Unique event identifier")
     run_id: Optional[str] = Field(default=None, description="Associated run attempt identifier")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Event occurrence timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Event occurrence timestamp")
     event_type: EventType = Field(..., description="Categorized event type")
     actor: str = Field(..., description="Identity of actor that triggered event")
     tool: Optional[str] = Field(default=None, description="Associated tool identifier if applicable")

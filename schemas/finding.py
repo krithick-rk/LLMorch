@@ -4,7 +4,7 @@ LLMorch Data Contracts - Finding Model
 
 from enum import Enum
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -46,7 +46,7 @@ class Finding(BaseModel):
     state: FindingState = Field(default=FindingState.HYPOTHESIS, description="Current lifecycle state owned by orchestrator")
     lineage: List[str] = Field(default_factory=list, description="Parent finding_ids or history of derivations")
     timestamps: Dict[str, datetime] = Field(
-        default_factory=lambda: {"created_at": datetime.utcnow()},
+        default_factory=lambda: {"created_at": datetime.now(timezone.utc)},
         description="Audit timestamps (created_at, updated_at, validated_at, etc.)"
     )
     schema_version: str = Field(default="1.0.0", description="Contract schema version")

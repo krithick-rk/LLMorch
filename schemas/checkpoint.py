@@ -3,7 +3,7 @@ LLMorch Data Contracts - Checkpoint Model
 """
 
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -31,4 +31,4 @@ class Checkpoint(BaseModel):
     is_valid: bool = Field(default=True, description="Whether checkpoint is valid for resume")
     invalidation_reason: Optional[str] = Field(default=None, description="Reason if checkpoint is stale or invalid")
     schema_version: str = Field(default="1.0.0", description="Contract schema version")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Checkpoint creation timestamp")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Checkpoint creation timestamp")

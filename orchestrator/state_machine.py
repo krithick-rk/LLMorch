@@ -4,7 +4,7 @@ Enforces valid state transitions for Task and Finding models and produces struct
 """
 
 from typing import Dict, Set, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from schemas.task import Task, TaskStatus
 from schemas.finding import Finding, FindingState
 from schemas.event import Event, EventType
@@ -55,7 +55,7 @@ class TaskStateMachine:
 
         old_status = task.status
         task.status = new_status
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         if new_status == TaskStatus.RUNNING and task.started_at is None:
             task.started_at = now
@@ -121,9 +121,9 @@ class FindingStateMachine:
 
         old_state = finding.state
         finding.state = new_state
-        finding.timestamps["updated_at"] = datetime.utcnow()
+        finding.timestamps["updated_at"] = datetime.now(timezone.utc)
         if new_state in cls.TERMINAL_STATES:
-            finding.timestamps["finalized_at"] = datetime.utcnow()
+            finding.timestamps["finalized_at"] = datetime.now(timezone.utc)
 
         event = Event(
             event_type=EventType.STATE_TRANSITION,

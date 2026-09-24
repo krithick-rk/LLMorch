@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -21,7 +21,7 @@ class Workspace(BaseModel):
     working_directory: str = Field(..., description="Absolute path to isolated workspace working directory")
     is_git_worktree: bool = Field(default=False, description="Whether workspace is a git worktree")
     base_commit: Optional[str] = Field(default=None, description="Git commit hash workspace was created from")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Workspace creation timestamp")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Workspace creation timestamp")
     schema_version: str = Field(default="1.0.0", description="Contract schema version")
 
 

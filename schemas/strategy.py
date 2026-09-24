@@ -3,7 +3,7 @@ LLMorch Data Contracts - Phase 4 Strategy & Agent Assignment Models
 """
 
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 import uuid
 
@@ -15,7 +15,7 @@ class StrategyDecision(BaseModel):
     """
     decision_id: str = Field(default_factory=lambda: f"strat-{uuid.uuid4().hex[:12]}")
     task_id: str = Field(..., description="Target task identifier")
-    chosen_agent_count: int = Field(..., ge=1, le=4, description="Selected number of agents (1-4)")
+    chosen_agent_count: int = Field(..., ge=0, le=4, description="Selected number of agents (0-4)")
     selected_agents: List[str] = Field(default_factory=list, description="IDs of chosen agents")
     candidate_agents: List[str] = Field(default_factory=list, description="IDs of eligible candidates considered")
     excluded_agents: List[str] = Field(default_factory=list, description="IDs of candidates excluded due to hard constraints")
@@ -30,7 +30,7 @@ class StrategyDecision(BaseModel):
     expected_benefit: str = Field(default="Balanced coverage", description="Expected outcome benefit of selection")
     escalation_conditions: List[str] = Field(default_factory=list, description="Triggers for adding another agent")
     stop_conditions: List[str] = Field(default_factory=list, description="Triggers for halting agent pool expansion")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class AgentAssignment(BaseModel):

@@ -525,5 +525,452 @@ class DatabaseService:
             );
             """)
 
+            # Global Intelligence Plane Tables
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS global_concepts (
+                concept_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                description TEXT NOT NULL,
+                related_cwe TEXT NOT NULL,
+                provenance TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS vulnerability_patterns (
+                pattern_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                vulnerability_family TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                structural_signature TEXT NOT NULL,
+                semantic_signature TEXT,
+                behavioral_signature TEXT,
+                indicators TEXT NOT NULL,
+                suggested_investigation_steps TEXT NOT NULL,
+                recommended_tool_classes TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                privacy_class TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                observation_count INTEGER NOT NULL,
+                provenance TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                version TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS security_invariants (
+                invariant_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                formal_expression TEXT,
+                natural_language TEXT NOT NULL,
+                affected_components TEXT NOT NULL,
+                recommended_tools TEXT NOT NULL,
+                provenance TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS attack_surface_patterns (
+                pattern_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                boundary_type TEXT NOT NULL,
+                entry_points TEXT NOT NULL,
+                common_attack_paths TEXT NOT NULL,
+                required_capabilities TEXT NOT NULL,
+                provenance TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS investigation_strategies (
+                strategy_id TEXT PRIMARY KEY,
+                vulnerability_family TEXT NOT NULL,
+                recommended_decomposition TEXT NOT NULL,
+                success_rate REAL NOT NULL,
+                historical_failures TEXT NOT NULL,
+                provenance TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS false_positive_patterns (
+                fp_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                vulnerability_family TEXT NOT NULL,
+                distinguishing_factors TEXT NOT NULL,
+                countermeasures_present TEXT NOT NULL,
+                provenance TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tool_evidence_patterns (
+                guidance_id TEXT PRIMARY KEY,
+                vulnerability_family TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                primary_tools TEXT NOT NULL,
+                secondary_tools TEXT NOT NULL,
+                required_evidence_artifacts TEXT NOT NULL,
+                provenance TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS feedback_records (
+                feedback_id TEXT PRIMARY KEY,
+                finding_id TEXT,
+                hypothesis_reference TEXT,
+                project_id TEXT NOT NULL,
+                snapshot_id TEXT,
+                analysis_unit_id TEXT,
+                reviewer TEXT NOT NULL,
+                label TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                corrected_localization TEXT,
+                corrected_security_property TEXT,
+                corrected_attack_path TEXT,
+                supporting_evidence_refs TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS knowledge_promotions (
+                promotion_id TEXT PRIMARY KEY,
+                source_project_id TEXT NOT NULL,
+                source_finding_id TEXT,
+                proposed_pattern_id TEXT NOT NULL,
+                accepted INTEGER NOT NULL,
+                rejection_reason TEXT,
+                sanitized_fields TEXT NOT NULL,
+                egress_policy_applied TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            # Phase 8 Tables
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS candidates (
+                candidate_id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                analysis_unit_id TEXT NOT NULL,
+                hypothesis_id TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                security_property TEXT NOT NULL,
+                attack_surface TEXT NOT NULL,
+                attack_path TEXT NOT NULL,
+                expected_behavior TEXT NOT NULL,
+                suspected_behavior TEXT NOT NULL,
+                required_evidence TEXT NOT NULL,
+                priority TEXT NOT NULL,
+                source_references TEXT NOT NULL,
+                tool_observations TEXT NOT NULL,
+                memory_references TEXT NOT NULL,
+                historical_references TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                schema_version TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS repro_specs (
+                spec_id TEXT PRIMARY KEY,
+                candidate_id TEXT NOT NULL,
+                objective TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                reproducer_type TEXT NOT NULL,
+                preconditions TEXT NOT NULL,
+                entry_point TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                expected_failure TEXT NOT NULL,
+                required_harness TEXT NOT NULL,
+                required_tools TEXT NOT NULL,
+                build_procedure TEXT NOT NULL,
+                run_procedure TEXT NOT NULL,
+                validation_signal TEXT NOT NULL,
+                requested_replay_count INTEGER NOT NULL,
+                environment_requirements TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                schema_version TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reproducers (
+                reproducer_id TEXT PRIMARY KEY,
+                candidate_id TEXT NOT NULL,
+                spec_id TEXT NOT NULL,
+                reproducer_type TEXT NOT NULL,
+                state TEXT NOT NULL,
+                manifest TEXT NOT NULL,
+                harness TEXT NOT NULL,
+                inputs TEXT NOT NULL,
+                quarantined_files TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                schema_version TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sandbox_executions (
+                execution_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                reproducer_id TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                command TEXT NOT NULL,
+                exit_code INTEGER NOT NULL,
+                stdout_hash TEXT NOT NULL,
+                stderr_hash TEXT NOT NULL,
+                wall_time_seconds REAL NOT NULL,
+                environment_fingerprint TEXT NOT NULL,
+                network_policy TEXT NOT NULL,
+                trace_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS validation_results (
+                validation_id TEXT PRIMARY KEY,
+                candidate_id TEXT NOT NULL,
+                reproducer_id TEXT NOT NULL,
+                verdict TEXT NOT NULL,
+                confidence_score REAL NOT NULL,
+                determinism TEXT NOT NULL,
+                replay_comparison TEXT NOT NULL,
+                minimization TEXT,
+                supporting_evidence_ids TEXT NOT NULL,
+                execution_trace_ids TEXT NOT NULL,
+                reasoning TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            # Phase 9 — add columns that the API layer needs (safe, idempotent)
+            _p9_migrations = [
+                # events: add task_id and entity columns for timeline filtering
+                "ALTER TABLE events ADD COLUMN task_id TEXT",
+                "ALTER TABLE events ADD COLUMN entity_type TEXT",
+                "ALTER TABLE events ADD COLUMN entity_id TEXT",
+                # evidence: add display columns
+                "ALTER TABLE evidence ADD COLUMN finding_id TEXT",
+                "ALTER TABLE evidence ADD COLUMN source_tool TEXT",
+                "ALTER TABLE evidence ADD COLUMN timestamp TEXT",
+                "ALTER TABLE evidence ADD COLUMN tool_version TEXT",
+                "ALTER TABLE evidence ADD COLUMN command TEXT",
+                "ALTER TABLE evidence ADD COLUMN stdout TEXT",
+                "ALTER TABLE evidence ADD COLUMN stderr TEXT",
+                "ALTER TABLE evidence ADD COLUMN exit_code INTEGER",
+                "ALTER TABLE evidence ADD COLUMN sandbox_id TEXT",
+                "ALTER TABLE evidence ADD COLUMN semantic_identity TEXT",
+                # findings: add state/severity/timestamps
+                "ALTER TABLE findings ADD COLUMN task_id TEXT",
+                "ALTER TABLE findings ADD COLUMN state TEXT DEFAULT 'OPEN'",
+                "ALTER TABLE findings ADD COLUMN severity TEXT",
+                "ALTER TABLE findings ADD COLUMN evidence_ids TEXT",
+                "ALTER TABLE findings ADD COLUMN artifact_ids TEXT",
+                "ALTER TABLE findings ADD COLUMN affected_locations TEXT",
+                "ALTER TABLE findings ADD COLUMN confidence REAL",
+                "ALTER TABLE findings ADD COLUMN notes TEXT",
+                "ALTER TABLE findings ADD COLUMN created_at TEXT",
+                "ALTER TABLE findings ADD COLUMN updated_at TEXT",
+                # validation_results: add finding_id/timestamp/validator_name
+                "ALTER TABLE validation_results ADD COLUMN finding_id TEXT",
+                "ALTER TABLE validation_results ADD COLUMN timestamp TEXT",
+                "ALTER TABLE validation_results ADD COLUMN validator_name TEXT",
+                "ALTER TABLE validation_results ADD COLUMN replay_count INTEGER DEFAULT 0",
+                # reproducers: add finding_id/status/manifest_hash
+                "ALTER TABLE reproducers ADD COLUMN finding_id TEXT",
+                "ALTER TABLE reproducers ADD COLUMN status TEXT DEFAULT 'UNKNOWN'",
+                "ALTER TABLE reproducers ADD COLUMN manifest_hash TEXT",
+                # repository_snapshots: add family/branch/tag/total_files
+                "ALTER TABLE repository_snapshots ADD COLUMN family TEXT",
+                "ALTER TABLE repository_snapshots ADD COLUMN branch TEXT",
+                "ALTER TABLE repository_snapshots ADD COLUMN tag TEXT",
+                "ALTER TABLE repository_snapshots ADD COLUMN total_files INTEGER DEFAULT 0",
+                # analysis_units: add security_critical flag
+                "ALTER TABLE analysis_units ADD COLUMN security_critical INTEGER DEFAULT 0",
+                # agents: add registered_at
+                "ALTER TABLE agents ADD COLUMN registered_at TEXT",
+                # runs: add start_time/end_time aliases (schema uses start_time already)
+                "ALTER TABLE runs ADD COLUMN start_time_api TEXT",
+                # Phase 9.1 additions
+                "ALTER TABLE agents ADD COLUMN role TEXT DEFAULT 'general_analysis'",
+                "ALTER TABLE agents ADD COLUMN status TEXT DEFAULT 'ACTIVE'",
+                "ALTER TABLE agents ADD COLUMN enabled INTEGER DEFAULT 1",
+                "ALTER TABLE agents ADD COLUMN supported_models TEXT DEFAULT '[]'",
+                "ALTER TABLE agents ADD COLUMN current_model_id TEXT",
+                "ALTER TABLE tasks ADD COLUMN model_id TEXT",
+                "ALTER TABLE runs ADD COLUMN model_id TEXT",
+            ]
+            for sql in _p9_migrations:
+                try:
+                    cursor.execute(sql)
+                except Exception:
+                    pass  # Column already exists — idempotent
+
+            # Phase 9.1 Tables
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS models (
+                model_id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                context_window INTEGER NOT NULL,
+                max_output_tokens INTEGER NOT NULL,
+                input_token_tracking_supported INTEGER NOT NULL DEFAULT 1,
+                output_token_tracking_supported INTEGER NOT NULL DEFAULT 1,
+                token_estimation_method TEXT NOT NULL,
+                capabilities TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                cost_per_million_input REAL DEFAULT 0.0,
+                cost_per_million_output REAL DEFAULT 0.0,
+                metadata TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                schema_version TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS agent_model_capabilities (
+                mapping_id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                priority INTEGER NOT NULL DEFAULT 10,
+                notes TEXT,
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS token_usage (
+                record_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                attempt_id TEXT,
+                agent_id TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                input_tokens_actual INTEGER NOT NULL DEFAULT 0,
+                output_tokens_actual INTEGER NOT NULL DEFAULT 0,
+                total_tokens_actual INTEGER NOT NULL DEFAULT 0,
+                input_tokens_estimated INTEGER NOT NULL DEFAULT 0,
+                output_tokens_estimated INTEGER NOT NULL DEFAULT 0,
+                total_tokens_estimated INTEGER NOT NULL DEFAULT 0,
+                input_source TEXT NOT NULL,
+                output_source TEXT NOT NULL,
+                token_source TEXT NOT NULL,
+                is_estimated INTEGER NOT NULL DEFAULT 0,
+                token_limit INTEGER,
+                tokens_remaining INTEGER,
+                created_at TEXT NOT NULL,
+                schema_version TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS token_budgets (
+                budget_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                scope_type TEXT NOT NULL,
+                scope_id TEXT NOT NULL,
+                budget_limit INTEGER NOT NULL,
+                consumed INTEGER NOT NULL DEFAULT 0,
+                remaining INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'AVAILABLE',
+                updated_at TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS repository_token_estimates (
+                estimate_id TEXT PRIMARY KEY,
+                repository_path TEXT NOT NULL,
+                snapshot_id TEXT,
+                total_files INTEGER NOT NULL,
+                source_files INTEGER NOT NULL,
+                security_relevant_files INTEGER NOT NULL,
+                excluded_files INTEGER NOT NULL,
+                raw_tokens INTEGER NOT NULL,
+                llm_scoped_tokens INTEGER NOT NULL,
+                analysis_unit_tokens INTEGER NOT NULL,
+                context_expansion_tokens INTEGER NOT NULL,
+                initial_analysis_tokens INTEGER NOT NULL,
+                followup_tokens INTEGER NOT NULL,
+                estimated_total INTEGER NOT NULL,
+                recommended_budget INTEGER NOT NULL,
+                estimation_method TEXT NOT NULL,
+                confidence TEXT NOT NULL,
+                breakdown_by_language TEXT NOT NULL,
+                breakdown_by_stage TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                schema_version TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS agent_switches (
+                switch_id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                previous_agent_id TEXT NOT NULL,
+                new_agent_id TEXT NOT NULL,
+                previous_model_id TEXT,
+                new_model_id TEXT,
+                switch_type TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                checkpoint_id TEXT,
+                resume_action TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'COMPLETED',
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS model_switches (
+                switch_id TEXT PRIMARY KEY,
+                task_id TEXT,
+                run_id TEXT,
+                agent_id TEXT NOT NULL,
+                previous_model_id TEXT NOT NULL,
+                new_model_id TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS configuration_records (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                category TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                updated_by TEXT NOT NULL
+            );
+            """)
+
             conn.commit()
-            logger.info("Database schema initialized successfully (Phase 0-7 tables verified).")
+            logger.info("Database schema initialized successfully (Phase 0-9.1 tables verified).")
+
+
+def get_db_path() -> str:
+    """
+    Return the canonical path to the persistent LLMorch database.
+    Respects LLMORCH_DB_PATH env override for testing.
+    """
+    import os
+    override = os.environ.get("LLMORCH_DB_PATH")
+    if override:
+        return override
+    here = Path(__file__).resolve().parent
+    return str(here / "llmorch.db")

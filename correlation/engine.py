@@ -65,9 +65,12 @@ class FindingCorrelator:
 
         if hyp_a == hyp_b and common_locs:
             return CorrelationType.DUPLICATE
-        if ("no vulnerability" in hyp_a and "vulnerability" in hyp_b) or \
-           ("vulnerability" in hyp_a and "no vulnerability" in hyp_b):
+
+        is_neg_a = any(neg in hyp_a for neg in ["no vulnerability", "not vulnerable", "clean", "safe", "false positive", "benign"])
+        is_neg_b = any(neg in hyp_b for neg in ["no vulnerability", "not vulnerable", "clean", "safe", "false positive", "benign"])
+        if common_locs and ((is_neg_a and not is_neg_b) or (is_neg_b and not is_neg_a)):
             return CorrelationType.CONTRADICTORY
+
         if common_locs or any(word in hyp_b for word in hyp_a.split() if len(word) > 4):
             return CorrelationType.RELATED
         return CorrelationType.INDEPENDENT
