@@ -1359,10 +1359,54 @@ function EmergencyStopModal({ runId, onConfirm, onCancel }) {
 }
 
 export default function App() {
-  const [page, setPage] = useState('overview')
+  // Route parsing for persistent URLs & new-tab support
+  const parseRoute = () => {
+    const p = window.location.pathname
+    if (p.startsWith('/run/')) return { page: 'overview', entityId: p.replace('/run/', '') }
+    if (p.startsWith('/finding/')) return { page: 'dossier', entityId: p.replace('/finding/', '') }
+    if (p.startsWith('/task/')) return { page: 'workflow', entityId: p.replace('/task/', '') }
+    if (p.startsWith('/agent/')) return { page: 'agents', entityId: p.replace('/agent/', '') }
+    if (p.startsWith('/evidence/')) return { page: 'evidence', entityId: p.replace('/evidence/', '') }
+    if (p.startsWith('/tool/')) return { page: 'tools', entityId: p.replace('/tool/', '') }
+    if (p.startsWith('/workflow')) return { page: 'workflow' }
+    if (p.startsWith('/target-repo') || p.startsWith('/repository')) return { page: 'target-repo' }
+    if (p.startsWith('/agents')) return { page: 'agents' }
+    if (p.startsWith('/tools')) return { page: 'tools' }
+    if (p.startsWith('/dossier') || p.startsWith('/findings')) return { page: 'dossier' }
+    if (p.startsWith('/hypothesis') || p.startsWith('/hypotheses')) return { page: 'hypothesis' }
+    if (p.startsWith('/evidence')) return { page: 'evidence' }
+    if (p.startsWith('/timeline')) return { page: 'timeline' }
+    if (p.startsWith('/settings')) return { page: 'settings' }
+    return { page: 'overview' }
+  }
+
+  const [page, setPageState] = useState(() => parseRoute().page)
+  const [selectedEntity, setSelectedEntity] = useState(() => parseRoute())
   const [refreshSignal, setRefreshSignal] = useState(0)
   const [wsConnected, setWsConnected] = useState(false)
   const [eventLog, setEventLog] = useState([])
+
+  const setPage = (targetPage, entityInfo = null) => {
+    setPageState(targetPage)
+    let url = `/${targetPage}`
+    if (targetPage === 'overview') url = '/'
+    if (entityInfo?.type && entityInfo?.id) {
+      url = `/${entityInfo.type}/${entityInfo.id}`
+    }
+    if (window.location.pathname !== url) {
+      window.history.pushState(null, '', url)
+    }
+  }
+
+  useEffect(() => {
+    const onPopState = () => {
+      const parsed = parseRoute()
+      setPageState(parsed.page)
+      setSelectedEntity(parsed)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
 
   // Run state (fetched from backend — browser is never authoritative)
   const [currentRun, setCurrentRun] = useState(null)
@@ -1388,7 +1432,7 @@ export default function App() {
     const RUN_EVENTS = [
       'RUN_PAUSE_REQUESTED','RUN_PAUSED','RUN_RESUME_REQUESTED','RUN_RESUMED',
       'RUN_STOP_REQUESTED','RUN_DRAINING','RUN_STOPPED','RUN_EMERGENCY_STOPPED',
-      'ANALYSIS_STARTED',
+      'ANALYSIS_STARTED','REPOSITORY_ANALYSIS_COMPLETED','QUESTION_CREATED','QUESTION_ANSWERED',
     ]
     if (RUN_EVENTS.includes(evt.event_type)) {
       fetchCurrentRun()
@@ -1411,7 +1455,7 @@ export default function App() {
         tasks: detail.total_tasks,
         active_tasks: detail.active_tasks,
         findings: detail.findings_count,
-        tokens: 0,  // from token tracker
+        tokens: 0,
       })
     } catch {
       setCurrentRun(null)
@@ -1420,21 +1464,43 @@ export default function App() {
 
   useEffect(() => {
     fetchCurrentRun()
-    // Poll run state every 15s when active
     const iv = setInterval(fetchCurrentRun, 15000)
     return () => clearInterval(iv)
   }, [fetchCurrentRun])
 
-  // Elapsed timer — local counter, resets on run changes
+  // Authoritative Active Security Timer:
+  // Timer is 0 before START SECURITY ANALYSIS or during repository intake/waiting
+  // Increments when run_state is RUNNING
+  // Freezes on PAUSED / STOPPED / COMPLETED
   useEffect(() => {
     if (elapsedRef.current) clearInterval(elapsedRef.current)
-    if (!currentRun?.start_time) { setElapsed(null); return }
-    const startMs = new Date(currentRun.start_time).getTime()
-    const tick = () => setElapsed((Date.now() - startMs) / 1000)
+    const stage = currentRun?.stage || 'REPOSITORY_ANALYSIS'
+    const state = currentRun?.run_state || currentRun?.status || 'PREPARING'
+
+    if (stage === 'REPOSITORY_ANALYSIS' || ['PREPARING', 'REPOSITORY_ANALYSIS', 'WAITING_FOR_ANALYST'].includes(state)) {
+      setElapsed(0)
+      return
+    }
+
+    if (['PAUSED', 'STOPPED', 'COMPLETED', 'FAILED', 'EMERGENCY_STOPPED'].includes(state)) {
+      setElapsed(currentRun?.active_duration_seconds ?? currentRun?.elapsed_seconds ?? 0)
+      return
+    }
+
+    if (!currentRun?.analysis_started_at) {
+      setElapsed(currentRun?.active_duration_seconds || 0)
+      return
+    }
+
+    const startMs = new Date(currentRun.analysis_started_at).getTime()
+    const tick = () => {
+      const sec = Math.max(0, (Date.now() - startMs) / 1000)
+      setElapsed(sec)
+    }
     tick()
     elapsedRef.current = setInterval(tick, 1000)
     return () => clearInterval(elapsedRef.current)
-  }, [currentRun?.run_id, currentRun?.start_time])
+  }, [currentRun?.run_id, currentRun?.stage, currentRun?.run_state, currentRun?.analysis_started_at, currentRun?.active_duration_seconds, currentRun?.paused_at])
 
   const isConnected = useRealtimeEvents(handleEvent)
   useEffect(() => { setWsConnected(isConnected) }, [isConnected])

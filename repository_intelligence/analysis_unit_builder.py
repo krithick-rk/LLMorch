@@ -37,10 +37,14 @@ class AnalysisUnitBuilder:
     ) -> List[AnalysisUnit]:
         units: List[AnalysisUnit] = []
 
-        # Group files by language/domain
+        # Group files by language/domain (content-bearing files only)
         domain_map: Dict[str, List[FileClassificationRecord]] = {}
         for rec in file_records:
-            if rec.classification in (FileClassificationType.PRIMARY_SOURCE, FileClassificationType.SECURITY_METADATA, FileClassificationType.FORMAL):
+            if rec.size_bytes > 0 and rec.classification in (
+                FileClassificationType.PRIMARY_SOURCE,
+                FileClassificationType.SECURITY_METADATA,
+                FileClassificationType.FORMAL
+            ):
                 domain_map.setdefault(rec.language, []).append(rec)
 
         # 1. RTL Modules as AnalysisUnits (module-cluster boundary)

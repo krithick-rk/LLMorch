@@ -127,6 +127,24 @@ export const api = {
   tools: (params = {}) => req('/tools?' + new URLSearchParams(params)),
   toolDetail: (name) => req(`/tools/${name}`),
   toolExecHistory: (name, params = {}) => req(`/tools/${name}/executions?` + new URLSearchParams(params)),
+
+  // Phase 9.5 — Questions & Decision Inbox
+  questions: (params = {}) => req('/questions?' + new URLSearchParams(params)),
+  question: (id) => req(`/questions/${id}`),
+  answerQuestion: (id, body) => req(`/questions/${id}/answer`, { method: 'POST', body: JSON.stringify(body) }),
+  dismissQuestion: (id, body = {}) => req(`/questions/${id}/dismiss`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // Phase 9.5 — Repository Intake & Capability Report
+  analyzeRepository: (body = {}) => req('/repositories/analyze', { method: 'POST', body: JSON.stringify(body) }),
+  currentRepoOverview: () => req('/repositories/current/overview'),
+
+  // Phase 9.5 — Agent Runtime & Local Terminal Guidance
+  agentRuntimeStatus: () => req('/agents/runtime/status'),
+  refreshAgentRuntimeStatus: () => req('/agents/runtime/refresh', { method: 'POST' }),
+  openTerminal: (body = {}) => req('/agents/runtime/terminal', { method: 'POST', body: JSON.stringify(body) }),
+
+  // Phase 9.5 — Attempt Detail
+  attemptDetail: (id) => req(`/attempts/${id}`),
 };
 
 export default api;

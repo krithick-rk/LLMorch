@@ -41,6 +41,7 @@ from api.routers import (
     tools,
     analysis,
     runs,
+    questions,
 )
 
 # ─── App ──────────────────────────────────────────────────────────────────────
@@ -48,11 +49,11 @@ from api.routers import (
 app = FastAPI(
     title="LLMorch Analyst Console API",
     description=(
-        "Phase 9.1 REST + WebSocket API for the LLMorch hardware security "
-        "vulnerability research orchestration system with Agent Switching, "
-        "Model Registry, and Authoritative Token Accounting."
+        "Phase 9.5 REST + WebSocket API for the LLMorch hardware security "
+        "vulnerability research operations console with Human-in-the-Loop "
+        "orchestration, runtime detection, and SIEM/SOC console capabilities."
     ),
-    version="9.1.0",
+    version="9.5.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -76,6 +77,7 @@ app.add_middleware(
 
 # ─── Routers ──────────────────────────────────────────────────────────────────
 app.include_router(tasks.router)
+app.include_router(tasks.attempts_router)
 app.include_router(agents.router)
 app.include_router(models.router)
 app.include_router(tokens.router)
@@ -91,6 +93,7 @@ app.include_router(controls.router)
 app.include_router(tools.router)
 app.include_router(analysis.router)
 app.include_router(runs.router)
+app.include_router(questions.router)
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

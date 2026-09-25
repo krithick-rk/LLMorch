@@ -668,6 +668,14 @@ class AnalystInstructionRepository:
         data["created_at"] = data.get("created_at") or now
         return data
 
+    def get(self, instruction_id: str) -> Optional[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM analyst_instructions WHERE instruction_id = ?",
+                (instruction_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
     def list_for_task(self, task_id: str) -> List[Dict[str, Any]]:
         with self.db.get_connection() as conn:
             rows = conn.execute(
@@ -871,6 +879,9 @@ class ToolExecutionRepository:
                 items.append(d)
             return items
 
+    def list_for_task(self, task_id: str) -> List[Dict[str, Any]]:
+        return self.list_executions(task_id=task_id)
+
 
 class AgentRoleRepository:
     """Manages task-scoped and default agent roles."""
@@ -1016,5 +1027,125 @@ class ReproducerVersionRepository:
             conn.commit()
             row = conn.execute("SELECT * FROM reproducer_versions WHERE version_id = ?", (version_id,)).fetchone()
             return dict(row) if row else None
+
+
+class QuestionRepository:
+    """Persistent storage for analyst questions and human-in-the-loop decisions."""
+
+    def __init__(self, db_service: DatabaseService):
+        self.db = db_service
+
+    def create_question(
+        self,
+        reason: str,
+        question: str,
+        options: List[Dict[str, Any]],
+        run_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        attempt_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        default_option: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        question_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        qid = question_id or f"q-{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc).isoformat()
+        opts_json = json.dumps(options)
+        ctx_json = json.dumps(context or {})
+
+        with self.db.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO questions (
+                    question_id, run_id, task_id, attempt_id, agent_id,
+                    status, reason, question, options, default_option,
+                    created_at, answered_at, answer, analyst_id, context
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                qid, run_id, task_id, attempt_id, agent_id,
+                "QUESTION_PENDING", reason, question, opts_json, default_option,
+                now, None, None, "analyst", ctx_json
+            ))
+            conn.commit()
+
+        return {
+            "question_id": qid,
+            "run_id": run_id,
+            "task_id": task_id,
+            "attempt_id": attempt_id,
+            "agent_id": agent_id,
+            "status": "QUESTION_PENDING",
+            "reason": reason,
+            "question": question,
+            "options": options,
+            "default_option": default_option,
+            "created_at": now,
+            "answered_at": None,
+            "answer": None,
+            "analyst_id": "analyst",
+            "context": context or {},
+        }
+
+    def get_question(self, question_id: str) -> Optional[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            row = conn.execute("SELECT * FROM questions WHERE question_id = ?", (question_id,)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["options"] = json.loads(d["options"]) if isinstance(d.get("options"), str) else (d.get("options") or [])
+            d["context"] = json.loads(d["context"]) if isinstance(d.get("context"), str) else (d.get("context") or {})
+            return d
+
+    def list_questions(
+        self,
+        run_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            filters = []
+            params = []
+            if run_id:
+                filters.append("run_id = ?")
+                params.append(run_id)
+            if task_id:
+                filters.append("task_id = ?")
+                params.append(task_id)
+            if status:
+                filters.append("status = ?")
+                params.append(status)
+            where = ("WHERE " + " AND ".join(filters)) if filters else ""
+            query = f"SELECT * FROM questions {where} ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+            rows = conn.execute(query, params).fetchall()
+            results = []
+            for r in rows:
+                d = dict(r)
+                d["options"] = json.loads(d["options"]) if isinstance(d.get("options"), str) else (d.get("options") or [])
+                d["context"] = json.loads(d["context"]) if isinstance(d.get("context"), str) else (d.get("context") or {})
+                results.append(d)
+            return results
+
+    def answer_question(self, question_id: str, answer: str, analyst_id: str = "analyst") -> Optional[Dict[str, Any]]:
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("""
+                UPDATE questions
+                SET status = 'QUESTION_ANSWERED', answered_at = ?, answer = ?, analyst_id = ?
+                WHERE question_id = ?
+            """, (now, answer, analyst_id, question_id))
+            conn.commit()
+        return self.get_question(question_id)
+
+    def dismiss_question(self, question_id: str) -> Optional[Dict[str, Any]]:
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("""
+                UPDATE questions
+                SET status = 'QUESTION_DISMISSED', answered_at = ?
+                WHERE question_id = ?
+            """, (now, question_id))
+            conn.commit()
+        return self.get_question(question_id)
 
 

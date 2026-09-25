@@ -215,27 +215,57 @@ def estimate_repository_tokens(
             excluded_tokens=excl_tok,
         ))
 
-    # AnalysisUnit estimation
-    au_count = len(analysis_units) if analysis_units else max(1, min(10, security_relevant_files or 3))
-    # Each AU typically scopes 15,000 - 30,000 input tokens
-    au_estimate = int(min(llm_eligible_token_total * 0.35, au_count * 20000))
-    context_expansion_estimate = int(au_estimate * 0.4)
+    # AnalysisUnit estimation based on actual eligible content
+    if llm_eligible_token_total == 0 or source_files == 0:
+        au_count = 0
+        au_estimate = 0
+        context_expansion_estimate = 0
+        discovery_tokens = 0
+        intake_tokens = 0
+        surfaces_tokens = 0
+        initial_sweep_tokens = 0
+        deep_analysis_tokens = 0
+        repro_tokens = 0
+        validation_tokens = 0
+        initial_analysis_total = 0
+        followup_total = 0
+        estimated_total = 0
+        recommended_budget = 0
+    elif llm_eligible_token_total < 5000:
+        # Small / tiny repository — strictly proportional, no massive minimum floor
+        au_count = len(analysis_units) if analysis_units else (1 if source_files > 0 else 0)
+        au_estimate = max(50, int(llm_eligible_token_total * 0.8))
+        context_expansion_estimate = int(llm_eligible_token_total * 0.2)
+        discovery_tokens = max(20, int(llm_eligible_token_total * 0.15))
+        intake_tokens = max(20, int(llm_eligible_token_total * 0.2))
+        surfaces_tokens = max(20, int(llm_eligible_token_total * 0.15))
+        initial_sweep_tokens = au_estimate
+        deep_analysis_tokens = context_expansion_estimate
+        repro_tokens = max(20, int(llm_eligible_token_total * 0.2))
+        validation_tokens = max(10, int(llm_eligible_token_total * 0.1))
 
-    # Stage breakdowns
-    discovery_tokens = min(35000, max(5000, int(llm_eligible_token_total * 0.05)))
-    intake_tokens = min(50000, max(8000, int(llm_eligible_token_total * 0.08)))
-    surfaces_tokens = min(75000, max(10000, int(llm_eligible_token_total * 0.12)))
-    initial_sweep_tokens = au_estimate
-    deep_analysis_tokens = context_expansion_estimate
-    repro_tokens = min(60000, max(15000, int(au_estimate * 0.3)))
-    validation_tokens = min(40000, max(10000, int(repro_tokens * 0.6)))
+        initial_analysis_total = discovery_tokens + intake_tokens + surfaces_tokens + initial_sweep_tokens
+        followup_total = deep_analysis_tokens + repro_tokens + validation_tokens
+        estimated_total = initial_analysis_total + followup_total
+        recommended_budget = int(estimated_total * 1.25)
+    else:
+        # Standard repository
+        au_count = len(analysis_units) if analysis_units else max(1, min(10, security_relevant_files or 3))
+        au_estimate = int(min(llm_eligible_token_total * 0.35, au_count * 20000))
+        context_expansion_estimate = int(au_estimate * 0.4)
 
-    initial_analysis_total = discovery_tokens + intake_tokens + surfaces_tokens + initial_sweep_tokens
-    followup_total = deep_analysis_tokens + repro_tokens + validation_tokens
-    estimated_total = initial_analysis_total + followup_total
+        discovery_tokens = min(35000, max(1000, int(llm_eligible_token_total * 0.05)))
+        intake_tokens = min(50000, max(1500, int(llm_eligible_token_total * 0.08)))
+        surfaces_tokens = min(75000, max(2000, int(llm_eligible_token_total * 0.12)))
+        initial_sweep_tokens = au_estimate
+        deep_analysis_tokens = context_expansion_estimate
+        repro_tokens = min(60000, max(2000, int(au_estimate * 0.3)))
+        validation_tokens = min(40000, max(1500, int(repro_tokens * 0.6)))
 
-    # Recommended budget includes 25% safety margin
-    recommended_budget = int(estimated_total * 1.25)
+        initial_analysis_total = discovery_tokens + intake_tokens + surfaces_tokens + initial_sweep_tokens
+        followup_total = deep_analysis_tokens + repro_tokens + validation_tokens
+        estimated_total = initial_analysis_total + followup_total
+        recommended_budget = int(estimated_total * 1.25)
 
     stages = [
         StageTokenEstimate(

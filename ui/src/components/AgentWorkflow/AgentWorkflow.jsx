@@ -1,20 +1,14 @@
-/**
- * AgentWorkflow.jsx — Phase 9.3 (full rewrite)
- * Primary investigation workflow page.
- * - React Flow dynamic graph (repo → orch → agents → tasks → tools → evidence → findings)
- * - Empty state pre-investigation
- * - Agent Workroom side panel on node click
- * - Realtime graph updates via refreshSignal
- */
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import api from '../../api'
 import { WorkflowGraph } from './WorkflowGraph'
 import { AgentWorkroom } from './AgentWorkroom'
-import { StatusPill, Spinner, EmptyState, SectionHeader, Btn, shortId } from '../shared'
+import { AgentActivityStream } from './AgentActivityStream'
+import { AnalystDecisionInbox } from './AnalystDecisionInbox'
+import { StatusPill, Spinner, SectionHeader, Btn } from '../shared'
 
 const FILTERS = ['ALL', 'ACTIVE', 'AGENTS', 'TASKS', 'TOOLS', 'EVIDENCE', 'FINDINGS', 'FAILED', 'COMPLETED']
 
-export function AgentWorkflowPage({ refreshSignal, onNavigate }) {
+export function AgentWorkflowPage({ refreshSignal, onNavigate, currentRun }) {
   const [tasks, setTasks] = useState(null)
   const [agents, setAgents] = useState(null)
   const [findings, setFindings] = useState(null)
@@ -63,15 +57,14 @@ export function AgentWorkflowPage({ refreshSignal, onNavigate }) {
   )
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', gap: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', gap: 10 }}>
       {/* Header */}
-      <div style={{ flexShrink: 0, paddingBottom: 12 }}>
+      <div style={{ flexShrink: 0 }}>
         <SectionHeader
           title="⚡ Agent Workflow"
           subtitle="Live orchestrator → agent → task → tool → evidence → finding pipeline"
           actions={
-            <>
-              {/* Filter pills */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <div style={{ display: 'flex', gap: 3, background: 'var(--bg-base)', padding: 3, borderRadius: 8, border: '1px solid var(--border)', flexWrap: 'wrap' }}>
                 {FILTERS.map(f => (
                   <button key={f} onClick={() => setFilter(f)} style={{
@@ -83,7 +76,7 @@ export function AgentWorkflowPage({ refreshSignal, onNavigate }) {
                 ))}
               </div>
               <Btn onClick={load} variant="secondary" size="sm">↺ Refresh</Btn>
-            </>
+            </div>
           }
         />
 
@@ -128,57 +121,39 @@ export function AgentWorkflowPage({ refreshSignal, onNavigate }) {
             )}
             {currentRepo && !hasAnyTasks && onNavigate && (
               <Btn onClick={() => onNavigate('target-repo')} variant="success" size="sm">
-                🚀 Start Analysis
+                🚀 Start Security Analysis
               </Btn>
             )}
           </div>
         </div>
       </div>
 
-      {/* Main area */}
-      <div style={{ flex: 1, display: 'flex', gap: 12, overflow: 'hidden', minHeight: 0 }}>
-        {/* Graph canvas */}
-        <div style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', minHeight: 0, position: 'relative' }}>
+      {/* Main split view: Workflow Graph (Left/Center) + Agent Activity Stream (RIGHT) */}
+      <div style={{ flex: 1, display: 'flex', gap: 10, overflow: 'hidden', minHeight: 0 }}>
+        {/* Dynamic graph canvas */}
+        <div style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', minHeight: 0, position: 'relative' }}>
           {!hasAnyTasks ? (
             <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-              <div style={{ textAlign: 'center', maxWidth: 400 }}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}>🔬</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
-                  No Active Investigation
+              <div style={{ textAlign: 'center', maxWidth: 420 }}>
+                <div style={{ fontSize: 44, marginBottom: 12 }}>🔬</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+                  Investigation Not Started
                 </div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.7, marginBottom: 20 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 18 }}>
                   {currentRepo ? (
                     <>
-                      Repository selected: <strong style={{ color: 'var(--text-secondary)' }}>{currentRepo.name || currentRepo.path?.split('/').pop()}</strong>
-                      <br />Analysis not yet started.
+                      Repository selected: <strong style={{ color: 'var(--text-secondary)' }}>{currentRepo.name || currentRepo.path?.split('/').pop()}</strong>.
+                      <br />Configure assignment and click Start Security Analysis to begin.
                     </>
-                  ) : 'Select a target repository and start analysis to see the live agent workflow.'}
+                  ) : 'Select a target repository to initialize repository intelligence and begin security analysis.'}
                 </div>
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                   {onNavigate && (
                     <Btn onClick={() => onNavigate('target-repo')} variant="primary" size="md">
-                      {currentRepo ? '🚀 Start Analysis' : '🎯 Select Repository'}
+                      {currentRepo ? '🚀 Target Repository Lifecycle' : '🎯 Select Repository'}
                     </Btn>
                   )}
                   <Btn onClick={load} variant="secondary" size="md">↺ Refresh</Btn>
-                </div>
-
-                {/* Quick status cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 24 }}>
-                  {[
-                    { label: 'Agents Available', value: (agents?.items || []).filter(a => a.health === 'AVAILABLE').length, icon: '🤖' },
-                    { label: 'Tools Registered', value: '42+', icon: '🔧' },
-                    { label: 'Analysis', value: hasAnyTasks ? 'Running' : 'Not started', icon: '📊' },
-                  ].map(({ label, value, icon }) => (
-                    <div key={label} style={{
-                      background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                      borderRadius: 8, padding: '10px 12px', textAlign: 'center',
-                    }}>
-                      <div style={{ fontSize: 20, marginBottom: 4 }}>{icon}</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{value}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{label}</div>
-                    </div>
-                  ))}
                 </div>
               </div>
             </div>
@@ -192,18 +167,39 @@ export function AgentWorkflowPage({ refreshSignal, onNavigate }) {
               onSelectNode={handleSelectNode}
             />
           )}
+
+          {/* Node detail / workroom drawer */}
+          {selectedNode && (
+            <AgentWorkroom
+              selectedNode={selectedNode}
+              agents={agents?.items || []}
+              onClose={() => setSelectedNode(null)}
+              onRefresh={load}
+            />
+          )}
         </div>
 
-        {/* Workroom panel */}
-        {selectedNode && (
-          <AgentWorkroom
-            selectedNode={selectedNode}
-            agents={agents?.items || []}
-            onClose={() => setSelectedNode(null)}
-            onRefresh={load}
-          />
-        )}
+        {/* Agent Activity Stream (RIGHT side) */}
+        <AgentActivityStream
+          runId={currentRun?.run_id}
+          refreshSignal={refreshSignal}
+          onSelectEntity={(type, id) => {
+            if (type === 'finding' && onNavigate) onNavigate('dossier')
+            else if (type === 'evidence' && onNavigate) onNavigate('evidence')
+            else if (type === 'tool' && onNavigate) onNavigate('tools')
+          }}
+        />
+      </div>
+
+      {/* Human-in-the-Loop Analyst Decisions / Decision Inbox (BOTTOM) */}
+      <div style={{ flexShrink: 0 }}>
+        <AnalystDecisionInbox
+          runId={currentRun?.run_id}
+          refreshSignal={refreshSignal}
+          onDecisionHandled={() => load()}
+        />
       </div>
     </div>
   )
 }
+

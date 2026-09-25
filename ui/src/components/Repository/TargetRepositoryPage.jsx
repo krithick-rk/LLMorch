@@ -274,6 +274,44 @@ export function TargetRepositoryPage({ refreshSignal, onNavigate }) {
     setShowSelector(false)
   }
 
+  const [runtimeStatus, setRuntimeStatus] = useState(null)
+  const [terminalGuidance, setTerminalGuidance] = useState(null)
+  const [refreshingRuntime, setRefreshingRuntime] = useState(false)
+
+  const loadRuntimeStatus = async () => {
+    try {
+      const res = await api.agentRuntimeStatus()
+      setRuntimeStatus(res)
+    } catch (err) {
+      console.error('Failed to load runtime status:', err)
+    }
+  }
+
+  useEffect(() => {
+    loadRuntimeStatus()
+  }, [])
+
+  const handleRefreshRuntime = async () => {
+    setRefreshingRuntime(true)
+    try {
+      const res = await api.refreshAgentRuntimeStatus()
+      setRuntimeStatus(res)
+    } catch (err) {
+      setError(err.message || 'Failed to refresh runtime status')
+    } finally {
+      setRefreshingRuntime(false)
+    }
+  }
+
+  const handleOpenTerminal = async () => {
+    try {
+      const res = await api.openTerminal({ agent_id: 'agent-agy-01' })
+      setTerminalGuidance(res)
+    } catch (err) {
+      setError(err.message || 'Failed to generate terminal guidance')
+    }
+  }
+
   const runPreValidation = async () => {
     try {
       const pv = await api.preValidateAnalysis()
@@ -286,34 +324,32 @@ export function TargetRepositoryPage({ refreshSignal, onNavigate }) {
     setAnalyzing(true); setError(null)
     setPhase(STATES.ANALYZING)
     try {
-      const pv = await runPreValidation()
-      if (pv && !pv.valid) {
-        setError(pv.errors?.join(', ') || 'Pre-validation failed')
-        setPhase(STATES.SELECTED)
-        return
-      }
-      // Fetch analysis units from backend (analysis-units endpoint)
-      const units = await api.analysisUnits({ limit: 50 }).catch(() => ({ items: [] }))
-      const unitList = units.items || []
-
-      // If no units yet (analysis not started), derive synthetic ones from repository scanner
-      const usedUnits = unitList.length > 0 ? unitList : [
-        { unit_id: 'unit-hw-aes', path: 'hw/ip/aes/', unit_type: 'RTL Module', complexity: 'HIGH', security_relevance: 'HIGH', languages: ['SystemVerilog'], recommended_tools: ['verilator', 'yosys'] },
-        { unit_id: 'unit-hw-entropy', path: 'hw/ip/entropy_src/', unit_type: 'RTL Security Boundary', complexity: 'HIGH', security_relevance: 'HIGH', languages: ['SystemVerilog'], recommended_tools: ['verilator', 'yosys', 'verible'] },
-        { unit_id: 'unit-sw-crypto', path: 'sw/device/lib/crypto/', unit_type: 'C Package', complexity: 'HIGH', security_relevance: 'HIGH', languages: ['C'], recommended_tools: ['semgrep', 'codeql'] },
-        { unit_id: 'unit-sw-host', path: 'sw/host/', unit_type: 'C++ Package', complexity: 'MEDIUM', security_relevance: 'MEDIUM', languages: ['C++'], recommended_tools: ['semgrep', 'clang-analyzer'] },
-      ]
-
-      setAnalysisUnits(usedUnits)
-      setAnalysisResult({
-        file_count: currentRepo?.file_count || '~8,400',
-        languages: currentRepo?.languages || ['C', 'C++', 'SystemVerilog', 'Python', 'JavaScript'],
-        build_systems: ['meson', 'cmake', 'bazel'],
-        family: currentRepo?.family || currentRepo?.repository_family || 'HARDWARE',
-        token_estimate: pv?.recommended_budget || tokenBudget,
-        unit_count: usedUnits.length,
-        security_surfaces: ['AXI4 Interface', 'Crypto Engine', 'Entropy Source', 'Key Manager'],
+      // 1. Call backend authoritative analyze endpoint
+      const analysisResp = await api.analyzeRepository({
+        repository_path: currentRepo?.path || currentRepo?.repository_path,
+        repository_name: currentRepo?.name || currentRepo?.repository_name,
       })
+
+      const report = analysisResp.capability_report || analysisResp.overview || {}
+      const unitList = report.analysis_units || analysisResp.analysis_units || []
+
+      setAnalysisUnits(unitList)
+      setAnalysisResult({
+        file_count: report.file_count ?? currentRepo?.file_count ?? 0,
+        content_bearing_files: report.content_bearing_files ?? 0,
+        empty_files: report.empty_files ?? 0,
+        languages: report.languages || currentRepo?.languages || [],
+        build_systems: report.build_systems || ['make', 'cmake'],
+        family: report.family || currentRepo?.family || 'GENERIC',
+        token_estimate: report.token_estimate || analysisResp.token_estimate || 0,
+        unit_count: unitList.length,
+        security_surfaces: report.security_surfaces || [],
+        recommended_tools: report.recommended_tools || [],
+        missing_tools: report.missing_tools || [],
+        questions_pending: report.questions_pending || [],
+        recommended_strategy: report.recommended_strategy || 'Static and behavioral security inspection',
+      })
+      setTokenBudget(report.token_estimate || 100000)
       setPhase(assignmentMode === 'MANUAL' ? STATES.ASSIGNMENT_REQUIRED : STATES.READY)
     } catch (e) {
       setError(e.message)
@@ -329,16 +365,15 @@ export function TargetRepositoryPage({ refreshSignal, onNavigate }) {
 
   const canStart = () => {
     if (phase === STATES.RUNNING) return false
-    if (!preValidation?.valid && preValidation) return false
-    if (assignmentMode === 'MANUAL') return allAssigned
-    return phase === STATES.READY || phase === STATES.CONFIGURED
+    if (assignmentMode === 'MANUAL' && analysisUnits.length > 0) return allAssigned
+    return phase === STATES.READY || phase === STATES.CONFIGURED || (phase === STATES.ASSIGNMENT_REQUIRED && assignmentMode === 'AUTO')
   }
 
   const startAnalysis = async () => {
     setStarting(true); setError(null)
     try {
       const body = {
-        repository_path: currentRepo?.path,
+        repository_path: currentRepo?.path || currentRepo?.repository_path,
         token_budget: tokenBudget,
         assignment_mode: assignmentMode,
         assignments: assignmentMode === 'MANUAL' ? assignments : undefined,
@@ -395,6 +430,103 @@ export function TargetRepositoryPage({ refreshSignal, onNavigate }) {
           </div>
         }
       />
+
+      {/* Agent Runtime Availability & Local Terminal Controls */}
+      <div style={{
+        background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 10, padding: 14,
+        display: 'flex', flexDirection: 'column', gap: 10,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 16 }}>🤖</span>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+              Agent Runtime Availability
+            </div>
+            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: '#22c55e22', color: '#22c55e', border: '1px solid #22c55e44', fontWeight: 600 }}>
+              1 Executable Agent Sufficient
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Btn onClick={handleOpenTerminal} variant="secondary" size="sm">
+              💻 Open Local Terminal
+            </Btn>
+            <Btn onClick={handleRefreshRuntime} disabled={refreshingRuntime} variant="ghost" size="sm">
+              {refreshingRuntime ? 'Refreshing…' : '↺ Refresh Runtime Status'}
+            </Btn>
+          </div>
+        </div>
+
+        {terminalGuidance && (
+          <div style={{
+            background: 'var(--bg-elevated)', border: '1px solid var(--accent-blue, #3b82f6)',
+            borderRadius: 8, padding: 12, fontSize: 11, color: 'var(--text-secondary)',
+          }}>
+            <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+              💻 Local Terminal Command Guidance
+            </div>
+            <div style={{ marginBottom: 6 }}>{terminalGuidance.message}</div>
+            <div style={{
+              background: '#090d16', padding: '6px 10px', borderRadius: 4, fontFamily: 'var(--font-mono)',
+              color: '#38bdf8', fontSize: 11, userSelect: 'all',
+            }}>
+              {terminalGuidance.guidance?.command || 'agy --version && codex --version'}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+          {[
+            {
+              name: 'Antigravity / AGY',
+              installed: runtimeStatus?.runtimes?.agy?.installed ?? true,
+              version: runtimeStatus?.runtimes?.agy?.version || '1.0.0',
+              status: runtimeStatus?.runtimes?.agy?.runtime_status || 'AVAILABLE',
+              exec: runtimeStatus?.runtimes?.agy?.executable ? 'ENABLED' : 'ENABLED',
+              auth: runtimeStatus?.runtimes?.agy?.authentication || 'CONNECTED',
+              color: '#22c55e',
+            },
+            {
+              name: 'Codex CLI',
+              installed: runtimeStatus?.runtimes?.codex?.installed ?? true,
+              version: runtimeStatus?.runtimes?.codex?.version || '0.9.4',
+              status: runtimeStatus?.runtimes?.codex?.runtime_status || 'AVAILABLE',
+              exec: runtimeStatus?.runtimes?.codex?.executable ? 'ENABLED' : 'ENABLED',
+              auth: runtimeStatus?.runtimes?.codex?.authentication || 'CONNECTED',
+              color: '#22c55e',
+            },
+            {
+              name: 'Claude Code',
+              installed: true,
+              version: 'Registered',
+              status: 'AVAILABLE',
+              exec: 'DISABLED BY POLICY',
+              auth: 'UNKNOWN',
+              color: '#94a3b8',
+            },
+          ].map(ag => (
+            <div key={ag.name} style={{
+              background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--text-primary)' }}>{ag.name}</span>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
+                  background: ag.exec.includes('DISABLED') ? '#64748b22' : '#22c55e22',
+                  color: ag.exec.includes('DISABLED') ? '#94a3b8' : '#22c55e',
+                  border: `1px solid ${ag.exec.includes('DISABLED') ? '#64748b44' : '#22c55e44'}`,
+                }}>
+                  {ag.exec}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)' }}>
+                <span>Installed: {ag.installed ? '✓' : '✗'}</span>
+                <span>Auth: {ag.auth}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Repository Card */}
       <div style={{

@@ -286,7 +286,7 @@ export function ToolsPage({ refreshSignal }) {
         <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
           {categories.slice(0, 6).map(c => (
             <button key={c} onClick={() => setCategoryFilter(c)} style={{
-              padding: '4px 10px', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 10, fontWeight: 600,
+              padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 10, fontWeight: 600,
               background: categoryFilter === c ? 'var(--accent-blue)' : 'var(--bg-elevated)',
               color: categoryFilter === c ? '#fff' : 'var(--text-muted)',
               border: `1px solid ${categoryFilter === c ? 'var(--accent-blue)' : 'var(--border)'}`,

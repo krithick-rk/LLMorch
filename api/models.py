@@ -22,9 +22,10 @@ class PaginatedResponse(BaseModel):
 
 # ─── Runs / Tasks ─────────────────────────────────────────────────────────────
 
-# Valid run states (Phase 9.4 state machine)
+# Valid run states (Phase 9.5 state machine)
 RUN_STATES = [
-    "PREPARING", "RUNNING", "PAUSE_REQUESTED", "PAUSED",
+    "PREPARING", "REPOSITORY_ANALYSIS", "WAITING_FOR_ANALYST", "RUNNING",
+    "QUESTION_PENDING", "PAUSE_REQUESTED", "PAUSED",
     "RESUME_REQUESTED", "STOP_REQUESTED", "DRAINING",
     "CHECKPOINTING", "STOPPED", "FAILED", "COMPLETED",
     "EMERGENCY_STOP_REQUESTED", "EMERGENCY_STOPPED",
@@ -36,10 +37,13 @@ class RunSummary(BaseModel):
     agent_id: str
     status: str
     run_state: str = "RUNNING"
+    stage: Optional[str] = "REPOSITORY_ANALYSIS"
     repository_name: Optional[str] = None
     repository_path: Optional[str] = None
     token_budget: Optional[int] = None
     start_time: Optional[datetime] = None
+    analysis_started_at: Optional[datetime] = None
+    active_duration_seconds: int = 0
     end_time: Optional[datetime] = None
     paused_at: Optional[datetime] = None
     stopped_at: Optional[datetime] = None
@@ -66,9 +70,13 @@ class RunStateDetail(BaseModel):
     run_id: str
     run_state: str
     status: str
+    stage: Optional[str] = "REPOSITORY_ANALYSIS"
     repository_name: Optional[str] = None
+    repository_path: Optional[str] = None
     token_budget: Optional[int] = None
     start_time: Optional[datetime] = None
+    analysis_started_at: Optional[datetime] = None
+    active_duration_seconds: int = 0
     paused_at: Optional[datetime] = None
     stopped_at: Optional[datetime] = None
     checkpoint_count: int = 0
@@ -788,10 +796,11 @@ class AgentRoleResponse(BaseModel):
 
 class AnalystInstructionRequest(BaseModel):
     message: str
-    task_id: str
+    task_id: Optional[str] = None
     agent_id: Optional[str] = None
     role: Optional[str] = None
     scope: Optional[str] = None
+    model_id: Optional[str] = None
     requested_action: Optional[str] = "RE_EXECUTE"
 
 
@@ -799,7 +808,8 @@ class AnalystInstructionItem(BaseModel):
     instruction_id: str
     run_id: Optional[str] = None
     task_id: str
-    attempt_id: int = 1
+    attempt_id: Union[str, int] = 1
+    attempt_number: Optional[int] = None
     agent_id: Optional[str] = None
     role: Optional[str] = None
     message: str
@@ -807,6 +817,7 @@ class AnalystInstructionItem(BaseModel):
     requested_action: str = "RE_EXECUTE"
     created_by: str = "analyst"
     created_at: Optional[datetime] = None
+    status: Optional[str] = "RUNNING"
 
 
 class TaskAttemptSummary(BaseModel):
@@ -881,6 +892,8 @@ class AnalysisStartRequest(BaseModel):
     selected_models: Optional[List[str]] = None
     token_budget: Optional[int] = None
     analysis_units: Optional[List[str]] = None
+    assignment_mode: Optional[str] = "AUTOMATIC"  # AUTOMATIC or MANUAL
+    assignments: Optional[List[Dict[str, Any]]] = None
 
 
 class AnalysisStartResponse(BaseModel):
@@ -962,4 +975,152 @@ class FindingDossier(BaseModel):
     updated_at: Optional[datetime] = None
     confidence: Optional[float] = None
     notes: Optional[str] = None
+
+
+# ─── Phase 9.5: Questions & Human-in-the-Loop Models ──────────────────────────
+
+class QuestionOptionModel(BaseModel):
+    id: str
+    label: str
+    description: Optional[str] = None
+    is_default: bool = False
+
+
+class QuestionSummaryModel(BaseModel):
+    question_id: str
+    run_id: Optional[str] = None
+    task_id: Optional[str] = None
+    attempt_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    status: str = "QUESTION_PENDING"
+    reason: str
+    question: str
+    options: List[QuestionOptionModel] = Field(default_factory=list)
+    default_option: Optional[str] = None
+    created_at: Optional[datetime] = None
+    answered_at: Optional[datetime] = None
+    answer: Optional[str] = None
+
+
+class QuestionDetailModel(QuestionSummaryModel):
+    analyst_id: Optional[str] = "analyst"
+    context: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+
+class CreateQuestionRequestModel(BaseModel):
+    run_id: Optional[str] = None
+    task_id: Optional[str] = None
+    attempt_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    reason: str
+    question: str
+    options: List[QuestionOptionModel]
+    default_option: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
+
+
+class AnswerQuestionRequestModel(BaseModel):
+    answer: str
+    reasoning: Optional[str] = None
+    analyst_id: Optional[str] = "analyst"
+
+
+# ─── Phase 9.5: Repository Analysis & Intelligence Report ─────────────────────
+
+class RepositoryCapabilityReport(BaseModel):
+    repository_path: str
+    repository_name: str
+    repository_family: str  # OPEN_TITAN_STYLE, CALIPTRA_STYLE, GENERIC, UNKNOWN
+    is_generic: bool = False
+    generic_explanation: Optional[str] = None
+    total_files: int = 0
+    content_bearing_files: int = 0
+    empty_files: int = 0
+    is_empty_repository: bool = False
+    empty_repository_explanation: Optional[str] = None
+    languages: List[str] = Field(default_factory=list)
+    build_systems: List[str] = Field(default_factory=list)
+    security_surfaces_count: int = 0
+    security_surfaces: List[Dict[str, Any]] = Field(default_factory=list)
+    analysis_units_count: int = 0
+    analysis_units: List[Dict[str, Any]] = Field(default_factory=list)
+    potential_attack_surfaces: List[str] = Field(default_factory=list)
+    recommended_tools: List[str] = Field(default_factory=list)
+    available_tools: List[str] = Field(default_factory=list)
+    missing_tools: List[str] = Field(default_factory=list)
+    token_estimate: Optional[Dict[str, Any]] = None
+    recommended_strategy: str = "Static & Semantic Inspection"
+    questions: List[QuestionSummaryModel] = Field(default_factory=list)
+    status: str = "ANALYSIS_READY_FOR_REVIEW"
+    created_at: Optional[datetime] = None
+
+
+class RepositoryAnalyzeRequest(BaseModel):
+    repository_path: Optional[str] = None
+    include_metadata: bool = True
+
+
+# ─── Phase 9.5: Agent Runtime Truthful Status & Terminal Guidance ─────────────
+
+class AgentRuntimeStatusItem(BaseModel):
+    agent_id: str
+    name: str
+    installed: bool = False
+    version: Optional[str] = None
+    executable: bool = False
+    authentication: str = "UNKNOWN"  # CONNECTED, AVAILABLE, NOT VERIFIED, DISABLED, UNAVAILABLE
+    runtime_status: str = "AVAILABLE"  # AVAILABLE, CONNECTED, NOT VERIFIED, DISABLED, UNAVAILABLE
+    execution_enabled: bool = False
+    execution_policy_note: Optional[str] = None
+    supported_models: List[str] = Field(default_factory=list)
+
+
+class AgentRuntimeStatusResponse(BaseModel):
+    total_agents: int
+    executable_agents_count: int
+    is_operational: bool
+    status_summary: str
+    agents: List[AgentRuntimeStatusItem]
+
+
+class TerminalOpenResponse(BaseModel):
+    success: bool
+    method: str  # "LAUNCHED", "COMMAND_PROVIDED", "DESKTOP_INSTRUCTION"
+    command: str
+    message: str
+
+
+# ─── Phase 9.5: Task Attempt Lineage & Analyst Instructions ───────────────────
+
+
+
+
+class AnalystInstructionResponse(BaseModel):
+    instruction_id: str
+    task_id: str
+    attempt_id: str
+    attempt_number: int
+    status: str
+    message: str
+    created_at: Optional[datetime] = None
+
+
+class TaskAttemptDetail(BaseModel):
+    attempt_id: str
+    task_id: str
+    attempt_number: int
+    run_id: Optional[str] = None
+    agent_id: str
+    role: str
+    model_id: Optional[str] = None
+    instruction_id: Optional[str] = None
+    instruction_message: Optional[str] = None
+    status: str
+    approach: Optional[str] = None
+    hypothesis: Optional[str] = None
+    evidence_ids: List[str] = Field(default_factory=list)
+    tool_executions: List[Dict[str, Any]] = Field(default_factory=list)
+    finding_ids: List[str] = Field(default_factory=list)
+    created_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
 

@@ -155,6 +155,19 @@ class DatabaseService:
                 failure_code TEXT,
                 failure_reason TEXT,
                 schema_version TEXT NOT NULL,
+                run_state TEXT DEFAULT 'RUNNING',
+                repository_path TEXT,
+                repository_name TEXT,
+                token_budget INTEGER DEFAULT 650000,
+                paused_at TEXT,
+                resumed_at TEXT,
+                stopped_at TEXT,
+                checkpoint_count INTEGER DEFAULT 0,
+                drain_requested_at TEXT,
+                completed_at TEXT,
+                analysis_started_at TEXT,
+                active_duration_seconds INTEGER DEFAULT 0,
+                stage TEXT DEFAULT 'REPOSITORY_ANALYSIS',
                 FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
             );
             """)
@@ -1123,8 +1136,40 @@ class DatabaseService:
                 except Exception:
                     pass
 
+            # Phase 9.5 — Human-in-the-Loop Analyst Questions & Active Timer migrations
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS questions (
+                question_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                task_id TEXT,
+                attempt_id TEXT,
+                agent_id TEXT,
+                status TEXT NOT NULL DEFAULT 'QUESTION_PENDING',
+                reason TEXT NOT NULL,
+                question TEXT NOT NULL,
+                options TEXT NOT NULL DEFAULT '[]',
+                default_option TEXT,
+                created_at TEXT NOT NULL,
+                answered_at TEXT,
+                answer TEXT,
+                analyst_id TEXT DEFAULT 'analyst',
+                context TEXT DEFAULT '{}'
+            );
+            """)
+
+            _p95_migrations = [
+                "ALTER TABLE runs ADD COLUMN analysis_started_at TEXT",
+                "ALTER TABLE runs ADD COLUMN active_duration_seconds INTEGER DEFAULT 0",
+                "ALTER TABLE runs ADD COLUMN stage TEXT DEFAULT 'REPOSITORY_ANALYSIS'",
+            ]
+            for sql in _p95_migrations:
+                try:
+                    cursor.execute(sql)
+                except Exception:
+                    pass
+
             conn.commit()
-            logger.info("Database schema initialized successfully (Phase 0-9.4 tables verified).")
+            logger.info("Database schema initialized successfully (Phase 0-9.5 tables verified).")
 
 
 def get_db_path() -> str:

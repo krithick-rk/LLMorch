@@ -56,12 +56,15 @@ def _dt(v):
         return None
 
 
-# Valid state transitions
+# Valid state transitions (Phase 9.5)
 _TRANSITIONS = {
-    "PREPARING":               ["RUNNING"],
-    "RUNNING":                 ["PAUSE_REQUESTED", "STOP_REQUESTED", "EMERGENCY_STOP_REQUESTED", "COMPLETED", "FAILED"],
+    "PREPARING":               ["REPOSITORY_ANALYSIS", "WAITING_FOR_ANALYST", "RUNNING", "FAILED"],
+    "REPOSITORY_ANALYSIS":     ["WAITING_FOR_ANALYST", "RUNNING", "STOP_REQUESTED", "FAILED"],
+    "WAITING_FOR_ANALYST":     ["RUNNING", "STOP_REQUESTED", "STOPPED", "REPOSITORY_ANALYSIS"],
+    "RUNNING":                 ["PAUSE_REQUESTED", "PAUSED", "QUESTION_PENDING", "STOP_REQUESTED", "EMERGENCY_STOP_REQUESTED", "COMPLETED", "FAILED"],
+    "QUESTION_PENDING":        ["RUNNING", "PAUSED", "STOP_REQUESTED", "FAILED"],
     "PAUSE_REQUESTED":         ["PAUSED", "RUNNING", "STOP_REQUESTED"],
-    "PAUSED":                  ["RESUME_REQUESTED", "STOP_REQUESTED", "EMERGENCY_STOP_REQUESTED"],
+    "PAUSED":                  ["RESUME_REQUESTED", "RUNNING", "STOP_REQUESTED", "EMERGENCY_STOP_REQUESTED"],
     "RESUME_REQUESTED":        ["RUNNING", "PAUSED"],
     "STOP_REQUESTED":          ["DRAINING", "STOPPED", "FAILED"],
     "DRAINING":                ["CHECKPOINTING", "STOPPED"],
@@ -107,6 +110,38 @@ def _record_control_event(db: DatabaseService, run_id: str, action: str,
     return event_id
 
 
+def _compute_active_elapsed(row: dict) -> float:
+    stage = row.get("stage", "REPOSITORY_ANALYSIS")
+    current_state = row.get("run_state") or row.get("status", "RUNNING")
+
+    # Before START SECURITY ANALYSIS: timer is 0
+    if stage == "REPOSITORY_ANALYSIS" or current_state in ("PREPARING", "REPOSITORY_ANALYSIS", "WAITING_FOR_ANALYST"):
+        return 0.0
+
+    analysis_start_raw = row.get("analysis_started_at")
+    if not analysis_start_raw:
+        return 0.0
+
+    analysis_start = _dt(analysis_start_raw)
+    if not analysis_start:
+        return 0.0
+
+    paused_at = _dt(row.get("paused_at"))
+    stopped_at = _dt(row.get("stopped_at"))
+    completed_at = _dt(row.get("completed_at"))
+
+    if current_state == "PAUSED" and paused_at:
+        return max(0.0, (paused_at - analysis_start).total_seconds())
+    elif current_state in ("STOPPED", "EMERGENCY_STOPPED") and stopped_at:
+        return max(0.0, (stopped_at - analysis_start).total_seconds())
+    elif current_state == "COMPLETED" and completed_at:
+        return max(0.0, (completed_at - analysis_start).total_seconds())
+    elif current_state == "RUNNING":
+        return max(0.0, (datetime.now(timezone.utc) - analysis_start).total_seconds())
+
+    return float(row.get("active_duration_seconds") or 0.0)
+
+
 def _build_run_summary(row: dict) -> RunSummary:
     return RunSummary(
         run_id=row["run_id"],
@@ -114,10 +149,13 @@ def _build_run_summary(row: dict) -> RunSummary:
         agent_id=row.get("agent_id", ""),
         status=row.get("status", "UNKNOWN"),
         run_state=row.get("run_state") or row.get("status", "RUNNING"),
+        stage=row.get("stage", "REPOSITORY_ANALYSIS"),
         repository_name=row.get("repository_name"),
         repository_path=row.get("repository_path"),
         token_budget=row.get("token_budget"),
         start_time=_dt(row.get("start_time")),
+        analysis_started_at=_dt(row.get("analysis_started_at")),
+        active_duration_seconds=int(_compute_active_elapsed(row)),
         end_time=_dt(row.get("end_time")),
         paused_at=_dt(row.get("paused_at")),
         stopped_at=_dt(row.get("stopped_at")),
@@ -150,11 +188,10 @@ def get_current_run(session: SessionInfo = Depends(require_session)):
     """Get the most recent active or last-run record."""
     db = _get_db()
     with db.get_connection() as conn:
-        # prefer RUNNING or PAUSED, then any most recent
         row = conn.execute("""
             SELECT * FROM runs
             WHERE run_state IN ('RUNNING','PAUSE_REQUESTED','PAUSED','RESUME_REQUESTED',
-                                'STOP_REQUESTED','DRAINING','CHECKPOINTING')
+                                'STOP_REQUESTED','DRAINING','CHECKPOINTING','WAITING_FOR_ANALYST','REPOSITORY_ANALYSIS')
             ORDER BY start_time DESC LIMIT 1
         """).fetchone()
         if not row:
@@ -173,14 +210,6 @@ def get_run_detail(run_id: str, session: SessionInfo = Depends(require_session))
     row = _get_run_row(db, run_id)
 
     with db.get_connection() as conn:
-        task_rows = conn.execute(
-            "SELECT status FROM tasks WHERE workflow_id = ("
-            "  SELECT workflow_id FROM tasks WHERE task_id = ? LIMIT 1"
-            ") OR task_id = ?",
-            (row["task_id"], row["task_id"])
-        ).fetchall()
-
-        # Simpler: get all tasks created in the same time window for this run's workspace
         all_tasks = conn.execute(
             "SELECT status FROM tasks WHERE status IS NOT NULL"
         ).fetchall()
@@ -194,24 +223,26 @@ def get_run_detail(run_id: str, session: SessionInfo = Depends(require_session))
     completed = sum(1 for s in statuses if s == "COMPLETED")
 
     start_time = _dt(row.get("start_time"))
-    elapsed = None
-    if start_time:
-        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+    elapsed = _compute_active_elapsed(row)
 
     return RunStateDetail(
         run_id=run_id,
         run_state=row.get("run_state") or row.get("status", "RUNNING"),
         status=row.get("status", "UNKNOWN"),
+        stage=row.get("stage", "REPOSITORY_ANALYSIS"),
         repository_name=row.get("repository_name"),
+        repository_path=row.get("repository_path"),
         token_budget=row.get("token_budget"),
         start_time=start_time,
+        analysis_started_at=_dt(row.get("analysis_started_at")),
+        active_duration_seconds=int(elapsed),
         paused_at=_dt(row.get("paused_at")),
         stopped_at=_dt(row.get("stopped_at")),
         checkpoint_count=row.get("checkpoint_count") or 0,
         active_tasks=active,
         completed_tasks=completed,
         total_tasks=len(statuses),
-        active_agents=2,  # derived from agent registry
+        active_agents=2,
         findings_count=findings_count,
         elapsed_seconds=elapsed,
     )
@@ -225,8 +256,8 @@ async def pause_run(
 ):
     """
     Request a graceful pause of the run.
-    Transitions: RUNNING → PAUSE_REQUESTED → (async) PAUSED
-    Backend stops scheduling new tasks and requests active agents to checkpoint.
+    Transitions: RUNNING → PAUSE_REQUESTED → PAUSED
+    Freezes active security-analysis timer and checkpoints task state.
     """
     db = _get_db()
     row = _get_run_row(db, run_id)
@@ -235,6 +266,8 @@ async def pause_run(
     _assert_transition(current_state, "PAUSE_REQUESTED", run_id)
 
     now = _now()
+    active_elapsed = _compute_active_elapsed(row)
+
     with db.get_connection() as conn:
         conn.execute("""
             UPDATE runs SET run_state = 'PAUSE_REQUESTED', status = 'PAUSE_REQUESTED'
@@ -252,15 +285,14 @@ async def pause_run(
                  "reason": request.reason},
     )
 
-    # Simulate checkpoint completion — in a real system this would be driven by
-    # agent heartbeat acknowledgements. Here we checkpoint immediately.
     with db.get_connection() as conn:
         conn.execute("""
             UPDATE runs SET run_state = 'PAUSED', status = 'PAUSED',
                 paused_at = ?,
+                active_duration_seconds = ?,
                 checkpoint_count = COALESCE(checkpoint_count, 0) + 1
             WHERE run_id = ?
-        """, (now, run_id))
+        """, (now, int(active_elapsed), run_id))
         conn.commit()
 
     _record_control_event(db, run_id, "PAUSED", "PAUSE_REQUESTED", "PAUSED", session)
@@ -270,7 +302,7 @@ async def pause_run(
         entity_type="run",
         entity_id=run_id,
         payload={"run_id": run_id, "from_state": "PAUSE_REQUESTED", "to_state": "PAUSED",
-                 "paused_at": now},
+                 "paused_at": now, "active_duration_seconds": int(active_elapsed)},
     )
 
     return RunControlResponse(
@@ -278,7 +310,7 @@ async def pause_run(
         action="PAUSE",
         from_state=current_state,
         to_state="PAUSED",
-        message="Run paused. All active task state preserved. Use /resume to continue.",
+        message="Run paused. All active task state preserved. Security timer frozen.",
         timestamp=_dt(now),
     )
 
@@ -292,7 +324,7 @@ async def resume_run(
     """
     Resume a paused run.
     Transitions: PAUSED → RESUME_REQUESTED → RUNNING
-    Verifies resumability, restores scheduler state, recalculates budgets.
+    Seamlessly resumes the authoritative active security timer.
     """
     db = _get_db()
     row = _get_run_row(db, run_id)
@@ -300,7 +332,14 @@ async def resume_run(
 
     _assert_transition(current_state, "RESUME_REQUESTED", run_id)
 
-    now = _now()
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat()
+    active_elapsed = row.get("active_duration_seconds") or 0
+
+    from datetime import timedelta
+    # Adjust analysis_started_at so now - analysis_started_at == accumulated active_elapsed
+    adjusted_start = (now_dt - timedelta(seconds=active_elapsed)).isoformat()
+
     with db.get_connection() as conn:
         conn.execute("""
             UPDATE runs SET run_state = 'RESUME_REQUESTED', status = 'RESUME_REQUESTED'
@@ -317,16 +356,17 @@ async def resume_run(
         payload={"run_id": run_id, "from_state": current_state, "to_state": "RESUME_REQUESTED"},
     )
 
-    # Restore to RUNNING
     with db.get_connection() as conn:
         conn.execute("""
             UPDATE runs SET run_state = 'RUNNING', status = 'RUNNING',
+                analysis_started_at = ?,
+                paused_at = NULL,
                 resumed_at = ?
             WHERE run_id = ?
-        """, (now, run_id))
+        """, (adjusted_start, now, run_id))
         conn.commit()
 
-    _record_control_event(db, run_id, "RESUMED", "RESUME_REQUESTED", "RUNNING", session)
+    _record_control_event(db, run_id, "RUNNING", "RESUME_REQUESTED", "RUNNING", session)
 
     await event_manager.broadcast(
         event_type="RUN_RESUMED",
@@ -341,7 +381,7 @@ async def resume_run(
         action="RESUME",
         from_state=current_state,
         to_state="RUNNING",
-        message="Run resumed. Scheduler restored. Agent assignments recalculated.",
+        message="Run resumed successfully. Security analysis continuing.",
         timestamp=_dt(now),
     )
 
@@ -410,14 +450,17 @@ async def stop_run(
         """)
         conn.commit()
 
+    active_elapsed = _compute_active_elapsed(row)
+
     # STOPPED — final state with preserved evidence
     with db.get_connection() as conn:
         conn.execute("""
             UPDATE runs SET run_state = 'STOPPED', status = 'STOPPED',
                 stopped_at = ?, end_time = ?,
+                active_duration_seconds = ?,
                 checkpoint_count = COALESCE(checkpoint_count, 0) + 1
             WHERE run_id = ?
-        """, (now, now, run_id))
+        """, (now, now, int(active_elapsed), run_id))
         conn.commit()
 
     _record_control_event(db, run_id, "STOPPED", "CHECKPOINTING", "STOPPED", session)

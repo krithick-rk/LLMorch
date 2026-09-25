@@ -36,17 +36,24 @@ from api.models import (
     RecentRepositoriesResponse,
     DirectoryEntry,
     DirectoryBrowseResponse,
+    RepositoryCapabilityReport,
+    RepositoryAnalyzeRequest,
+    QuestionOptionModel,
+    QuestionSummaryModel,
 )
 from api.session import require_session, SessionInfo
 from history.database import get_db_path, DatabaseService
-from history.repositories import RepositoryEstimateRepository, EventRepository
-from history.phase9_repositories import TargetRepositoryRepository
+from history.repositories import RepositoryEstimateRepository, EventRepository, AnalysisUnitRepository
+from history.phase9_repositories import TargetRepositoryRepository, QuestionRepository
 from configs.manager import ConfigManager
 from repository_intelligence.intake import RepositoryIntake
-from repository_intelligence.family import detect_repository_family
+from repository_intelligence.family import detect_repository_family, RepositoryFamilyType
 from repository_intelligence.token_estimator import estimate_repository_tokens
+from repository_intelligence.scanner import RepositoryTreeScanner
+from repository_intelligence.service import RepositoryIntelligenceService
 from api.realtime import event_manager
 from schemas.event import Event, EventType
+import shutil
 
 router = APIRouter(tags=["repository"])
 
@@ -331,6 +338,212 @@ def get_current_repository(session: SessionInfo = Depends(require_session)):
             last_used=current.get("last_used"),
         )
     )
+
+
+def _build_repository_capability_report(repo_path: str, db: DatabaseService) -> RepositoryCapabilityReport:
+    p = Path(repo_path).resolve()
+    if not p.exists() or not p.is_dir():
+        raise HTTPException(status_code=400, detail=f"Repository path '{repo_path}' is inaccessible or does not exist")
+
+    # Layer 1: Scanner & File Classification
+    scanner = RepositoryTreeScanner(str(p))
+    snapshot, file_records, symlinks, secrets = scanner.scan()
+
+    total_files = len(file_records)
+    content_bearing_files = sum(1 for f in file_records if f.size_bytes > 0)
+    empty_files = sum(1 for f in file_records if f.size_bytes == 0)
+    is_empty_repo = (content_bearing_files == 0)
+
+    # Layer 2: Family detection
+    family_type, adapter = detect_repository_family(p)
+    is_generic = (family_type == RepositoryFamilyType.UNKNOWN)
+    generic_explanation = None
+    if is_generic:
+        generic_explanation = "No known repository-family adapter was detected. Generic repository intelligence will be used."
+
+    empty_explanation = None
+    if is_empty_repo:
+        empty_explanation = (
+            f"The repository contains {total_files} file(s) with 0 content-bearing bytes. "
+            f"There is no source content available for vulnerability analysis."
+        )
+
+    # Layer 3: Run Repository Intelligence Service
+    ri_service = RepositoryIntelligenceService(db)
+    try:
+        ri_service.scan_repository(str(p))
+    except Exception:
+        pass
+
+    # Retrieve real AnalysisUnits
+    au_repo = AnalysisUnitRepository(db)
+    raw_units = au_repo.list_for_snapshot(snapshot.snapshot_id)
+    units_data = []
+    for u in raw_units:
+        units_data.append({
+            "unit_id": u.analysis_unit_id,
+            "name": u.name,
+            "unit_type": u.unit_type.value if hasattr(u.unit_type, "value") else str(u.unit_type),
+            "domain": u.domain,
+            "priority": u.priority.value if hasattr(u.priority, "value") else str(u.priority),
+            "source_files": u.source_files,
+            "description": u.description,
+            "relevance_score": getattr(u, "relevance_score", 0.5),
+            "relevance_reasons": u.provenance.get("relevance_reasons", []),
+        })
+
+    # Tools evaluation
+    candidate_tools = ["semgrep", "verilator", "slang", "yosys", "codeql", "gcc", "gdb", "pytest"]
+    available_tools = [t for t in candidate_tools if shutil.which(t) is not None]
+
+    # Recommended tools based on detected languages
+    recommended_tools = []
+    langs = sorted(list(snapshot.language_summary.keys()))
+    if any(l in ("systemverilog", "verilog", "sva") for l in langs):
+        recommended_tools.extend(["verilator", "slang", "yosys"])
+    if any(l in ("c", "cpp", "assembly") for l in langs):
+        recommended_tools.extend(["semgrep", "gcc", "gdb"])
+    if "python" in langs:
+        recommended_tools.extend(["semgrep", "pytest"])
+    if not recommended_tools:
+        recommended_tools.extend(["semgrep", "codeql"])
+    recommended_tools = sorted(list(set(recommended_tools)))
+
+    missing_tools = [t for t in recommended_tools if t not in available_tools]
+
+    # Token Estimate
+    est = estimate_repository_tokens(
+        repository_path=str(p),
+        snapshot_id=snapshot.snapshot_id,
+        file_records=file_records,
+        analysis_units=raw_units,
+        quarantined_secrets=secrets,
+    )
+    est_dict = {
+        "raw_token_estimate": est.raw_token_estimate,
+        "llm_scoped_token_estimate": est.llm_scoped_token_estimate,
+        "recommended_budget": est.recommended_budget,
+        "confidence": est.confidence.value,
+        "confidence_rationale": est.confidence_rationale,
+    }
+
+    # Questions Generation if Empty or Uncertain
+    questions_list = []
+    q_repo = QuestionRepository(db)
+
+    if is_empty_repo:
+        existing_q = q_repo.list_questions(status="QUESTION_PENDING", limit=10)
+        matching_q = [q for q in existing_q if q.get("context", {}).get("repository_path") == str(p)]
+        if matching_q:
+            created_q = matching_q[0]
+        else:
+            created_q = q_repo.create_question(
+                reason="The selected repository contains an empty source file.",
+                question="The repository contains an empty file. There is no source content available for vulnerability analysis. What should I do?",
+                options=[
+                    {"id": "wait_content", "label": "Wait for source content", "description": "Pause until content is added", "is_default": True},
+                    {"id": "inspect_metadata", "label": "Inspect metadata", "description": "Run metadata and structure analysis only", "is_default": False},
+                    {"id": "treat_as_fixture", "label": "Treat as test fixture", "description": "Proceed as a negative test fixture", "is_default": False},
+                    {"id": "stop", "label": "Stop", "description": "Cancel security analysis for this repository", "is_default": False},
+                ],
+                default_option="wait_content",
+                context={"repository_path": str(p), "empty_files": empty_files},
+            )
+        raw_opts = created_q.get("options") or []
+        opts = [QuestionOptionModel(**opt) if isinstance(opt, dict) else QuestionOptionModel(id=str(opt), label=str(opt)) for opt in raw_opts]
+        questions_list.append(QuestionSummaryModel(
+            question_id=created_q["question_id"],
+            status=created_q.get("status", "QUESTION_PENDING"),
+            reason=created_q["reason"],
+            question=created_q["question"],
+            options=opts,
+            default_option=created_q.get("default_option"),
+            created_at=datetime.fromisoformat(created_q["created_at"].replace("Z", "+00:00")) if created_q.get("created_at") else None,
+        ))
+
+    # Potential attack surfaces
+    attack_surfaces = []
+    if "hw_sw" in snapshot.language_summary or any(u.domain == "rtl" for u in raw_units):
+        attack_surfaces.append("Hardware Register Privilege Boundary")
+        attack_surfaces.append("FSM State Transition & Reset Bypass")
+    if any(l in ("c", "cpp") for l in langs):
+        attack_surfaces.append("Memory Safety & Buffer Boundary")
+        attack_surfaces.append("Cryptographic Constant-Time Verification")
+    if is_generic and not attack_surfaces:
+        attack_surfaces.append("Generic Code Injection & Logic Boundary")
+
+    report = RepositoryCapabilityReport(
+        repository_path=str(p),
+        repository_name=p.name,
+        repository_family=family_type.value if hasattr(family_type, "value") else str(family_type),
+        is_generic=is_generic,
+        generic_explanation=generic_explanation,
+        total_files=total_files,
+        content_bearing_files=content_bearing_files,
+        empty_files=empty_files,
+        is_empty_repository=is_empty_repo,
+        empty_repository_explanation=empty_explanation,
+        languages=langs,
+        build_systems=snapshot.build_systems,
+        security_surfaces_count=1 if snapshot.file_count > 0 else 0,
+        security_surfaces=[],
+        analysis_units_count=len(units_data),
+        analysis_units=units_data,
+        potential_attack_surfaces=attack_surfaces,
+        recommended_tools=recommended_tools,
+        available_tools=available_tools,
+        missing_tools=missing_tools,
+        token_estimate=est_dict,
+        recommended_strategy="Simulation & Dynamic Verification" if any("verilog" in l for l in langs) else "Static & Semantic Inspection",
+        questions=questions_list,
+        status="ANALYSIS_READY_FOR_REVIEW",
+        created_at=datetime.now(timezone.utc),
+    )
+    return report
+
+
+@router.post("/api/repositories/analyze", response_model=RepositoryCapabilityReport, tags=["repository"])
+@router.post("/api/repository/analyze", response_model=RepositoryCapabilityReport, tags=["repository"])
+async def analyze_repository(
+    request: RepositoryAnalyzeRequest,
+    session: SessionInfo = Depends(require_session),
+):
+    """
+    Executes deep repository analysis and capability mapping as a separate stage.
+    Does NOT start the security timer. Leaves the run in WAITING_FOR_ANALYST / ANALYSIS_READY_FOR_REVIEW.
+    """
+    db = _get_db()
+    repo_path = request.repository_path
+    if not repo_path:
+        target_repo = TargetRepositoryRepository(db)
+        cur = target_repo.get_current()
+        if cur:
+            repo_path = cur["repository_path"]
+        else:
+            raise HTTPException(status_code=400, detail="Repository path is required or must be selected first")
+
+    report = _build_repository_capability_report(repo_path, db)
+
+    # Broadcast repository analysis completed event
+    await event_manager.broadcast(
+        event_type="REPOSITORY_ANALYSIS_COMPLETED",
+        entity_type="repository",
+        entity_id=repo_path,
+        payload=report.model_dump(),
+    )
+
+    return report
+
+
+@router.get("/api/repositories/current/overview", response_model=RepositoryCapabilityReport, tags=["repository"])
+def get_current_repository_overview(session: SessionInfo = Depends(require_session)):
+    """Retrieves the full capability overview for the currently selected repository."""
+    db = _get_db()
+    target_repo = TargetRepositoryRepository(db)
+    cur = target_repo.get_current()
+    if not cur:
+        raise HTTPException(status_code=404, detail="No target repository currently selected")
+    return _build_repository_capability_report(cur["repository_path"], db)
 
 
 @router.get("/api/repositories/recent", response_model=RecentRepositoriesResponse, tags=["repository"])
