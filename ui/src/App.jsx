@@ -1228,46 +1228,135 @@ function GlobalIntelligencePage({ refreshSignal }) {
 
 // ─── App Shell ────────────────────────────────────────────────────────────────
 
-// Navigation structure — Phase 9.3
-// DAG and Repository Graph removed from analyst-facing nav (backends preserved)
+// Nav spec — Phase 9.4
 const NAV_SECTIONS = [
   {
     label: 'Investigation',
     pages: [
-      { id: 'overview',     label: 'Run Overview',      icon: '🚀' },
-      { id: 'workflow',     label: 'Agent Workflow',    icon: '⚡' },
-      { id: 'target-repo',  label: 'Target Repository', icon: '🎯' },
+      { id: 'overview',    label: 'Run Overview',      icon: '◈' },
+      { id: 'workflow',    label: 'Agent Workflow',    icon: '⬡' },
+      { id: 'target-repo', label: 'Target Repository', icon: '⊙' },
     ],
   },
   {
     label: 'Operations',
     pages: [
-      { id: 'agents',       label: 'Agents',            icon: '🤖' },
-      { id: 'tools',        label: 'Tools',             icon: '🔧' },
-    ],
-  },
-  {
-    label: 'Analysis',
-    pages: [
-      { id: 'hypothesis',   label: 'Hypotheses',        icon: '💡' },
-      { id: 'evidence',     label: 'Evidence',          icon: '🔐' },
-      { id: 'timeline',     label: 'Timeline',          icon: '📅' },
-      { id: 'dossier',      label: 'Finding Dossier',   icon: '📂' },
+      { id: 'agents',      label: 'Agents',            icon: '◉' },
+      { id: 'tools',       label: 'Tools',             icon: '◧' },
     ],
   },
   {
     label: 'Intelligence',
     pages: [
-      { id: 'intel',        label: 'Global Intel',      icon: '🌐' },
+      { id: 'dossier',     label: 'Findings',          icon: '▤' },
+      { id: 'hypothesis',  label: 'Hypotheses',        icon: '◇' },
+      { id: 'evidence',    label: 'Evidence',          icon: '◈' },
+      { id: 'timeline',    label: 'Timeline',          icon: '⊡' },
+      { id: 'intel',       label: 'Global Intel',      icon: '⊕' },
     ],
   },
   {
     label: 'Control Plane',
     pages: [
-      { id: 'settings',     label: 'Settings & Policy', icon: '⚙️' },
+      { id: 'settings',    label: 'Settings & Policy', icon: '◎' },
     ],
   },
 ]
+
+// Run control state machine transitions the UI permits
+const PAUSEABLE  = ['RUNNING']
+const RESUMABLE  = ['PAUSED']
+const STOPPABLE  = ['RUNNING', 'PAUSED', 'PAUSE_REQUESTED', 'DRAINING']
+const ACTIVE_STATES = ['RUNNING', 'PAUSE_REQUESTED', 'PAUSED', 'RESUME_REQUESTED',
+                       'STOP_REQUESTED', 'DRAINING', 'CHECKPOINTING', 'PREPARING']
+
+function fmtElapsed(seconds) {
+  if (!seconds) return '—'
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+}
+
+function fmtK(n) {
+  if (!n && n !== 0) return '—'
+  if (n >= 1000000) return (n/1000000).toFixed(1) + 'M'
+  if (n >= 1000) return (n/1000).toFixed(0) + 'k'
+  return String(n)
+}
+
+function RunStateDot({ state }) {
+  const cls = (state || 'unknown').toLowerCase().replace(/_/g, '_')
+  return <span className={`state-dot ${cls}`} title={state} />
+}
+
+function StopConfirmModal({ runId, onConfirm, onCancel }) {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title">Stop Security Analysis?</span>
+          <button className="btn btn-ghost btn-icon" onClick={onCancel}>✕</button>
+        </div>
+        <div className="modal-body">
+          <p className="text-secondary text-sm mb-3">This will:</p>
+          <ul className="confirm-list">
+            <li>Stop scheduling new tasks</li>
+            <li>Checkpoint running tasks</li>
+            <li>Gracefully terminate active analysis where possible</li>
+            <li>Preserve all evidence and artifacts</li>
+            <li>Mark the run STOPPED</li>
+          </ul>
+          <p style={{fontSize:'var(--fs-xs)',color:'var(--text-muted)',fontFamily:'var(--font-mono)'}}>
+            RUN ID: {runId}
+          </p>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+          <button id="btn-confirm-stop" className="btn btn-danger" onClick={onConfirm}>Stop Analysis</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EmergencyStopModal({ runId, onConfirm, onCancel }) {
+  const [confirmed, setConfirmed] = useState(false)
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title" style={{color:'var(--red)'}}>⚠ Emergency Stop</span>
+          <button className="btn btn-ghost btn-icon" onClick={onCancel}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div className="alert alert-red mb-3">
+            <span>⚠</span>
+            <div className="alert-body">
+              Emergency stop terminates all agent processes immediately without waiting for checkpoints.
+              In-flight task results may be incomplete.
+            </div>
+          </div>
+          <p className="text-secondary text-sm mb-3">Evidence captured so far will be preserved.</p>
+          <label className="flex items-center gap-2 text-sm" style={{cursor:'pointer'}}>
+            <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />
+            <span className="text-secondary">I confirm this is an emergency and understand the consequences</span>
+          </label>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+          <button
+            id="btn-confirm-emergency-stop"
+            className="btn btn-danger"
+            disabled={!confirmed}
+            onClick={onConfirm}
+          >Emergency Stop</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function App() {
   const [page, setPage] = useState('overview')
@@ -1275,36 +1364,138 @@ export default function App() {
   const [wsConnected, setWsConnected] = useState(false)
   const [eventLog, setEventLog] = useState([])
 
+  // Run state (fetched from backend — browser is never authoritative)
+  const [currentRun, setCurrentRun] = useState(null)
+  const [runCounts, setRunCounts] = useState({ tasks: 0, active_tasks: 0, findings: 0, tokens: 0 })
+  const [controlling, setControlling] = useState(false)
+  const [controlError, setControlError] = useState(null)
+  const [showStopModal, setShowStopModal] = useState(false)
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false)
+  const elapsedRef = useRef(null)
+  const [elapsed, setElapsed] = useState(null)
+
   const handleEvent = useCallback((evt) => {
     if (evt.type === 'RESYNC' || evt.event_type === 'RESYNC') {
-      // Client must refresh authoritative state from API
       setRefreshSignal(s => s + 1)
       return
     }
     if (evt.type === 'GAP_DETECTED') {
-      // Sequence gap — refresh
       setRefreshSignal(s => s + 1)
       return
     }
     setEventLog(prev => [evt, ...prev].slice(0, 50))
-    // Trigger refresh on task/finding state changes
-    if (['TASK_STATUS_CHANGED','FINDING_STATE_CHANGED','VALIDATOR_COMPLETED','ANALYST_ACTION','AGENT_SWITCH_COMPLETED','AGENT_FAILOVER_COMPLETED','MODEL_SWITCH_COMPLETED','TOKEN_USAGE_RECORDED','TOKEN_BUDGET_EXHAUSTED'].includes(evt.event_type)) {
+
+    const RUN_EVENTS = [
+      'RUN_PAUSE_REQUESTED','RUN_PAUSED','RUN_RESUME_REQUESTED','RUN_RESUMED',
+      'RUN_STOP_REQUESTED','RUN_DRAINING','RUN_STOPPED','RUN_EMERGENCY_STOPPED',
+      'ANALYSIS_STARTED',
+    ]
+    if (RUN_EVENTS.includes(evt.event_type)) {
+      fetchCurrentRun()
+      return
+    }
+    if (['TASK_STATUS_CHANGED','FINDING_STATE_CHANGED','VALIDATOR_COMPLETED',
+         'ANALYST_ACTION','AGENT_SWITCH_COMPLETED','AGENT_FAILOVER_COMPLETED',
+         'MODEL_SWITCH_COMPLETED','TOKEN_USAGE_RECORDED','TOKEN_BUDGET_EXHAUSTED'].includes(evt.event_type)) {
       setRefreshSignal(s => s + 1)
     }
   }, [])
 
-  const isConnected = useRealtimeEvents(handleEvent)
+  const fetchCurrentRun = useCallback(async () => {
+    try {
+      const run = await api.currentRun()
+      setCurrentRun(run)
+      // Fetch run detail for counts
+      const detail = await api.runDetail(run.run_id)
+      setRunCounts({
+        tasks: detail.total_tasks,
+        active_tasks: detail.active_tasks,
+        findings: detail.findings_count,
+        tokens: 0,  // from token tracker
+      })
+    } catch {
+      setCurrentRun(null)
+    }
+  }, [])
 
+  useEffect(() => {
+    fetchCurrentRun()
+    // Poll run state every 15s when active
+    const iv = setInterval(fetchCurrentRun, 15000)
+    return () => clearInterval(iv)
+  }, [fetchCurrentRun])
+
+  // Elapsed timer — local counter, resets on run changes
+  useEffect(() => {
+    if (elapsedRef.current) clearInterval(elapsedRef.current)
+    if (!currentRun?.start_time) { setElapsed(null); return }
+    const startMs = new Date(currentRun.start_time).getTime()
+    const tick = () => setElapsed((Date.now() - startMs) / 1000)
+    tick()
+    elapsedRef.current = setInterval(tick, 1000)
+    return () => clearInterval(elapsedRef.current)
+  }, [currentRun?.run_id, currentRun?.start_time])
+
+  const isConnected = useRealtimeEvents(handleEvent)
   useEffect(() => { setWsConnected(isConnected) }, [isConnected])
 
+  const runState = currentRun?.run_state || currentRun?.status || null
+  const stateClass = (runState || 'unknown').toLowerCase().replace(/_/g, '_')
+
+  // Run control actions — all authoritative on backend
+  async function handlePause() {
+    if (!currentRun || controlling) return
+    setControlling(true); setControlError(null)
+    try {
+      await api.pauseRun(currentRun.run_id, { reason: 'Analyst requested pause' })
+      await fetchCurrentRun()
+      setRefreshSignal(s => s + 1)
+    } catch(e) { setControlError(e.message) }
+    finally { setControlling(false) }
+  }
+
+  async function handleResume() {
+    if (!currentRun || controlling) return
+    setControlling(true); setControlError(null)
+    try {
+      await api.resumeRun(currentRun.run_id, { reason: 'Analyst requested resume' })
+      await fetchCurrentRun()
+      setRefreshSignal(s => s + 1)
+    } catch(e) { setControlError(e.message) }
+    finally { setControlling(false) }
+  }
+
+  async function handleStop() {
+    if (!currentRun || controlling) return
+    setShowStopModal(false)
+    setControlling(true); setControlError(null)
+    try {
+      await api.stopRun(currentRun.run_id, { reason: 'Analyst requested stop' })
+      await fetchCurrentRun()
+      setRefreshSignal(s => s + 1)
+    } catch(e) { setControlError(e.message) }
+    finally { setControlling(false) }
+  }
+
+  async function handleEmergencyStop() {
+    if (!currentRun || controlling) return
+    setShowEmergencyModal(false)
+    setControlling(true); setControlError(null)
+    try {
+      await api.emergencyStop(currentRun.run_id, { reason: 'Analyst emergency stop' })
+      await fetchCurrentRun()
+      setRefreshSignal(s => s + 1)
+    } catch(e) { setControlError(e.message) }
+    finally { setControlling(false) }
+  }
+
   const renderPage = () => {
-    const props = { refreshSignal, onNavigate: setPage }
+    const props = { refreshSignal, onNavigate: setPage, currentRun }
     switch (page) {
       case 'overview':     return <RunOverviewPage {...props} />
       case 'workflow':     return <AgentWorkflowPage {...props} />
       case 'target-repo':  return <TargetRepositoryPage {...props} />
       case 'tools':        return <ToolsPage {...props} />
-      // Legacy pages (still accessible via URL or code, nav entries removed)
       case 'dag':          return <TaskDAGPage {...props} />
       case 'repo':         return <RepositoryGraphPage {...props} />
       case 'agents':       return <AgentPanelPage {...props} />
@@ -1320,26 +1511,166 @@ export default function App() {
 
   return (
     <div id="root">
-      {/* Header */}
+      {/* ── SOC Application Header ─────────────────────────────────────────── */}
       <header className="app-header">
-        <div className="logo">
-          🔬 LLMorch <span>Analyst Console v9.1</span>
+        {/* Logo block */}
+        <div className="logo-block">
+          <div>
+            <div className="logo">LLMorch</div>
+            <div className="logo-sub">Security Research Console</div>
+          </div>
         </div>
-        <div className="header-status">
+
+        {/* Run identity */}
+        {currentRun ? (
+          <div className="header-run-id">
+            <div className="header-run-name truncate">
+              {currentRun.repository_name || 'No repository selected'}
+            </div>
+            <div className="header-run-id-text">{currentRun.run_id}</div>
+          </div>
+        ) : (
+          <div className="header-run-id">
+            <div className="header-run-name" style={{color:'var(--text-muted)'}}>No active run</div>
+            <div className="header-run-id-text">—</div>
+          </div>
+        )}
+
+        {/* Metrics strip */}
+        <div className="header-metrics">
+          {/* Run state */}
+          <div className="hm-item">
+            <span className="hm-label">Status</span>
+            <span className={`hm-value flex items-center gap-1 ${stateClass}`}>
+              <RunStateDot state={runState} />
+              {runState || '—'}
+            </span>
+          </div>
+
+          {/* Elapsed */}
+          <div className="hm-item">
+            <span className="hm-label">Elapsed</span>
+            <span className="hm-value" style={{fontVariantNumeric:'tabular-nums'}}>
+              {runState && ACTIVE_STATES.includes(runState) ? fmtElapsed(elapsed) : '—'}
+            </span>
+          </div>
+
+          {/* Tasks */}
+          <div className="hm-item">
+            <span className="hm-label">Tasks</span>
+            <span className="hm-value">
+              {runCounts.active_tasks > 0 ? (
+                <><span className="text-blue">{runCounts.active_tasks}</span>
+                <span style={{color:'var(--text-muted)'}}> / {runCounts.tasks}</span></>
+              ) : (runCounts.tasks || '—')}
+            </span>
+          </div>
+
+          {/* Findings */}
+          <div className="hm-item">
+            <span className="hm-label">Findings</span>
+            <span className={`hm-value ${runCounts.findings > 0 ? 'text-amber' : ''}`}>
+              {runCounts.findings || '—'}
+            </span>
+          </div>
+
+          {/* Token budget */}
+          {currentRun?.token_budget && (
+            <div className="hm-item" style={{minWidth:'100px'}}>
+              <span className="hm-label">Tokens</span>
+              <span className="hm-value">
+                — / {fmtK(currentRun.token_budget)}
+              </span>
+            </div>
+          )}
+
+          {/* WS status */}
+          <div className="hm-item">
+            <span className="hm-label">Realtime</span>
+            <span className={`hm-value ${wsConnected ? 'text-green' : 'text-red'}`}>
+              {wsConnected ? 'Live' : 'Off'}
+            </span>
+          </div>
+
+          {/* Last event */}
           {eventLog.length > 0 && (
-            <span style={{fontSize:'11px',color:'var(--text-muted)'}}>
-              {eventLog[0].event_type || 'event'}
+            <div className="hm-item" style={{minWidth:'140px'}}>
+              <span className="hm-label">Last Event</span>
+              <span className="hm-value text-xs font-mono truncate" style={{maxWidth:'130px',color:'var(--text-muted)'}}>
+                {eventLog[0].event_type || '—'}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Run Controls */}
+        <div className="header-controls">
+          {controlError && (
+            <span style={{fontSize:'var(--fs-xs)',color:'var(--red)',maxWidth:'160px'}} className="truncate" title={controlError}>
+              ⚠ {controlError}
             </span>
           )}
-          <div className={`status-dot ${wsConnected ? '' : 'offline'}`} title={wsConnected ? 'Realtime connected' : 'Realtime disconnected'} />
-          <span style={{fontSize:'11px',color:'var(--text-secondary)'}}>
-            {wsConnected ? 'Live' : 'Reconnecting…'}
-          </span>
+
+          {runState && RESUMABLE.includes(runState) && (
+            <button id="btn-resume" className="btn btn-success btn-sm" onClick={handleResume} disabled={controlling}>
+              {controlling ? <span className="spinner" style={{width:10,height:10}} /> : null}
+              ▶ Resume
+            </button>
+          )}
+
+          {runState && PAUSEABLE.includes(runState) && (
+            <button id="btn-pause" className="btn btn-warning btn-sm" onClick={handlePause} disabled={controlling}>
+              {controlling ? <span className="spinner" style={{width:10,height:10}} /> : null}
+              ⏸ Pause
+            </button>
+          )}
+
+          {runState && STOPPABLE.includes(runState) && (
+            <button id="btn-stop" className="btn btn-danger btn-sm" onClick={() => setShowStopModal(true)} disabled={controlling}>
+              ■ Stop
+            </button>
+          )}
+
+          {runState && ACTIVE_STATES.includes(runState) && (
+            <button id="btn-emergency-stop" className="btn btn-ghost btn-sm" title="Emergency Stop"
+              onClick={() => setShowEmergencyModal(true)} disabled={controlling}
+              style={{color:'var(--red)',borderColor:'var(--red-dim)'}}>
+              ⚡
+            </button>
+          )}
+
+          {!currentRun && (
+            <button className="btn btn-primary btn-sm" onClick={() => setPage('target-repo')}>
+              New Investigation
+            </button>
+          )}
+
+          {runState && ['STOPPED','EMERGENCY_STOPPED','COMPLETED','FAILED'].includes(runState) && (
+            <button className="btn btn-secondary btn-sm" onClick={() => setPage('dossier')}>
+              View Results
+            </button>
+          )}
         </div>
       </header>
 
+      {/* Confirmation modals */}
+      {showStopModal && (
+        <StopConfirmModal
+          runId={currentRun?.run_id}
+          onConfirm={handleStop}
+          onCancel={() => setShowStopModal(false)}
+        />
+      )}
+      {showEmergencyModal && (
+        <EmergencyStopModal
+          runId={currentRun?.run_id}
+          onConfirm={handleEmergencyStop}
+          onCancel={() => setShowEmergencyModal(false)}
+        />
+      )}
+
       <div className="app-body">
-        {/* Sidebar — Phase 9.3 nav */}
+        {/* ── Sidebar ───────────────────────────────────────────────────────── */}
         <nav className="sidebar">
           {NAV_SECTIONS.map(section => (
             <div key={section.label} className="sidebar-section">
@@ -1351,7 +1682,7 @@ export default function App() {
                   className={`nav-item ${page === p.id ? 'active' : ''}`}
                   onClick={() => setPage(p.id)}
                 >
-                  <span className="icon">{p.icon}</span>
+                  <span className="nav-icon">{p.icon}</span>
                   {p.label}
                 </div>
               ))}
@@ -1359,7 +1690,7 @@ export default function App() {
           ))}
         </nav>
 
-        {/* Main content */}
+        {/* ── Main Content ──────────────────────────────────────────────────── */}
         <main className="main-content">
           {renderPage()}
         </main>

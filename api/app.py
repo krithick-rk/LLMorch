@@ -40,6 +40,7 @@ from api.routers import (
     settings,
     tools,
     analysis,
+    runs,
 )
 
 # ─── App ──────────────────────────────────────────────────────────────────────
@@ -89,6 +90,7 @@ app.include_router(validation.router)
 app.include_router(controls.router)
 app.include_router(tools.router)
 app.include_router(analysis.router)
+app.include_router(runs.router)
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

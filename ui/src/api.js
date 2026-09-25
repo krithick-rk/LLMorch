@@ -24,6 +24,16 @@ export const api = {
   health: () => req('/health'),
   session: () => req('/session'),
 
+  // Run Control (Phase 9.4 state machine)
+  runs: (params = {}) => req('/runs?' + new URLSearchParams(params)),
+  currentRun: () => req('/runs/current'),
+  runDetail: (id) => req(`/runs/${id}`),
+  pauseRun: (id, body = {}) => req(`/runs/${id}/pause`, { method: 'POST', body: JSON.stringify(body) }),
+  resumeRun: (id, body = {}) => req(`/runs/${id}/resume`, { method: 'POST', body: JSON.stringify(body) }),
+  stopRun: (id, body = {}) => req(`/runs/${id}/stop`, { method: 'POST', body: JSON.stringify(body) }),
+  emergencyStop: (id, body = {}) => req(`/runs/${id}/emergency-stop`, { method: 'POST', body: JSON.stringify({ ...body, emergency: true }) }),
+  runEvents: (id, params = {}) => req(`/runs/${id}/events?` + new URLSearchParams(params)),
+
   // Tasks
   tasks: (params = {}) => req('/tasks?' + new URLSearchParams(params)),
   task:  (id) => req(`/tasks/${id}`),

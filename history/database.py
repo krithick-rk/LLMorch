@@ -1091,8 +1091,40 @@ class DatabaseService:
                 except Exception:
                     pass
 
+            # Phase 9.4 — Run State Machine migrations
+            _p94_migrations = [
+                "ALTER TABLE runs ADD COLUMN run_state TEXT DEFAULT 'RUNNING'",
+                "ALTER TABLE runs ADD COLUMN repository_path TEXT",
+                "ALTER TABLE runs ADD COLUMN repository_name TEXT",
+                "ALTER TABLE runs ADD COLUMN token_budget INTEGER DEFAULT 650000",
+                "ALTER TABLE runs ADD COLUMN paused_at TEXT",
+                "ALTER TABLE runs ADD COLUMN resumed_at TEXT",
+                "ALTER TABLE runs ADD COLUMN stopped_at TEXT",
+                "ALTER TABLE runs ADD COLUMN checkpoint_count INTEGER DEFAULT 0",
+                "ALTER TABLE runs ADD COLUMN drain_requested_at TEXT",
+                "ALTER TABLE runs ADD COLUMN completed_at TEXT",
+                """
+                CREATE TABLE IF NOT EXISTS run_control_events (
+                    event_id TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    from_state TEXT,
+                    to_state TEXT,
+                    requested_by TEXT,
+                    reason TEXT,
+                    checkpoint_ids TEXT DEFAULT '[]',
+                    created_at TEXT NOT NULL
+                )
+                """,
+            ]
+            for sql in _p94_migrations:
+                try:
+                    cursor.execute(sql)
+                except Exception:
+                    pass
+
             conn.commit()
-            logger.info("Database schema initialized successfully (Phase 0-9.3 tables verified).")
+            logger.info("Database schema initialized successfully (Phase 0-9.4 tables verified).")
 
 
 def get_db_path() -> str:

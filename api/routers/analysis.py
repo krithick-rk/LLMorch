@@ -182,12 +182,14 @@ async def start_analysis(
             INSERT INTO runs (
                 run_id, task_id, parent_run_id, agent_id, adapter_version,
                 start_time, end_time, process_id, exit_status, workspace_id,
-                environment_fingerprint, status, failure_code, failure_reason, schema_version
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                environment_fingerprint, status, failure_code, failure_reason, schema_version,
+                run_state, repository_name, repository_path, token_budget
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             run_id, f"task-root-{run_id}", None, available_agents[0], "1.0.0",
             now, None, None, None, f"ws-{run_id}",
-            "linux-sandbox", "RUNNING", None, None, "1.0"
+            "linux-sandbox", "RUNNING", None, None, "1.0",
+            "RUNNING", repo_name, str(p), request.token_budget or 650000
         ))
         conn.commit()
 

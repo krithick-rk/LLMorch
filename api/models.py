@@ -22,15 +22,62 @@ class PaginatedResponse(BaseModel):
 
 # ─── Runs / Tasks ─────────────────────────────────────────────────────────────
 
+# Valid run states (Phase 9.4 state machine)
+RUN_STATES = [
+    "PREPARING", "RUNNING", "PAUSE_REQUESTED", "PAUSED",
+    "RESUME_REQUESTED", "STOP_REQUESTED", "DRAINING",
+    "CHECKPOINTING", "STOPPED", "FAILED", "COMPLETED",
+    "EMERGENCY_STOP_REQUESTED", "EMERGENCY_STOPPED",
+]
+
 class RunSummary(BaseModel):
     run_id: str
     task_id: str
     agent_id: str
     status: str
+    run_state: str = "RUNNING"
+    repository_name: Optional[str] = None
+    repository_path: Optional[str] = None
+    token_budget: Optional[int] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+    paused_at: Optional[datetime] = None
+    stopped_at: Optional[datetime] = None
+    checkpoint_count: int = 0
     exit_status: Optional[int] = None
     failure_reason: Optional[str] = None
+
+
+class RunControlRequest(BaseModel):
+    reason: Optional[str] = None
+    emergency: bool = False
+
+
+class RunControlResponse(BaseModel):
+    run_id: str
+    action: str
+    from_state: str
+    to_state: str
+    message: str
+    timestamp: Optional[datetime] = None
+
+
+class RunStateDetail(BaseModel):
+    run_id: str
+    run_state: str
+    status: str
+    repository_name: Optional[str] = None
+    token_budget: Optional[int] = None
+    start_time: Optional[datetime] = None
+    paused_at: Optional[datetime] = None
+    stopped_at: Optional[datetime] = None
+    checkpoint_count: int = 0
+    active_tasks: int = 0
+    completed_tasks: int = 0
+    total_tasks: int = 0
+    active_agents: int = 0
+    findings_count: int = 0
+    elapsed_seconds: Optional[float] = None
 
 
 class TaskSummary(BaseModel):
