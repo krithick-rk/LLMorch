@@ -9,11 +9,18 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.models import AgentSummary, ModelSummary, PaginatedResponse
+from api.models import (
+    AgentSummary,
+    ModelSummary,
+    ModelCompatibilityItem,
+    ModelDiagnosticItem,
+    AgentModelsResponse,
+    PaginatedResponse,
+)
 from api.session import require_session, SessionInfo
 from history.database import get_db_path, DatabaseService
 from registry.model_registry import ModelRegistry
@@ -204,24 +211,116 @@ def get_agent(agent_id: str, session: SessionInfo = Depends(require_session)):
         return _row_to_agent(dict(row), conn=conn)
 
 
-@router.get("/{agent_id}/models", response_model=List[ModelSummary])
-def get_agent_models(agent_id: str, session: SessionInfo = Depends(require_session)):
-    """Returns list of models supported and configured for the given agent."""
+@router.get("/{agent_id}/models", response_model=Union[AgentModelsResponse, List[ModelCompatibilityItem]])
+def get_agent_models(
+    agent_id: str,
+    format: Optional[str] = Query(None, description="Optional format: 'list' or 'object' (default)"),
+    session: SessionInfo = Depends(require_session)
+):
+    """
+    Returns list of models supported and configured for the given agent.
+    Provides authoritative compatibility information, active model resolution, and diagnostics.
+    """
+    db = _get_db()
+    agent_row = None
+    with db.get_connection() as conn:
+        agent_row = conn.execute("SELECT * FROM agents WHERE agent_id = ?", (agent_id,)).fetchone()
+
+    from registry.agent_registry import AgentRegistry
+    from scheduler.execution_policy import get_execution_policy
+
+    reg = AgentRegistry(populate_defaults=True)
+    agent_obj = reg.get_agent(agent_id)
+
+    if not agent_row and not agent_obj:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found in registry")
+
+    agent_dict = dict(agent_row) if agent_row else {}
+    provider = agent_dict.get("provider") or (agent_obj.provider if agent_obj else "unknown")
+
+    exec_policy = get_execution_policy()
+    is_executable = exec_policy.is_agent_executable(agent_id)
+    disabled_reason = exec_policy.get_agent_disabled_reason(agent_id)
+
+    # 1. Resolve current active model ID and validity status
+    curr_model_id = (
+        agent_dict.get("model")
+        or agent_dict.get("current_model_id")
+        or getattr(agent_obj, "current_model_id", None)
+        or getattr(agent_obj, "model", None)
+    )
+    if not curr_model_id or curr_model_id == "runtime-resolved":
+        def_m = _model_registry.get_default_model_for_agent(agent_id)
+        curr_model_id = def_m.model_id if def_m else "runtime-resolved"
+
+    curr_model_obj = _model_registry.get_model(curr_model_id) if curr_model_id else None
+    if curr_model_obj:
+        curr_model_status = "VALID" if curr_model_obj.enabled else "DISABLED"
+    else:
+        curr_model_status = "UNREGISTERED"
+
+    # 2. Get compatible models
     models = _model_registry.get_models_for_agent(agent_id)
-    return [
-        ModelSummary(
+    if not models and agent_obj:
+        # Fallback to provider-based matching if mappings weren't initialized
+        models = _model_registry.list_models(provider=provider, enabled_only=True)
+
+    compat_items = [
+        ModelCompatibilityItem(
             model_id=m.model_id,
-            provider=m.provider,
             display_name=m.display_name,
+            provider=m.provider,
             context_window=m.context_window,
             max_output_tokens=m.max_output_tokens,
-            input_token_tracking_supported=m.input_token_tracking_supported,
-            output_token_tracking_supported=m.output_token_tracking_supported,
-            token_estimation_method=m.token_estimation_method.value,
             capabilities=m.capabilities,
-            enabled=m.enabled,
+            available=m.enabled and is_executable,
+            compatible=True,
             cost_per_million_input=m.cost_per_million_input,
             cost_per_million_output=m.cost_per_million_output,
+            tier=m.metadata.get("tier"),
+            rejection_reason=disabled_reason if not is_executable else None,
         )
         for m in models
     ]
+
+    # 3. Compute diagnostic path for all candidate models in registry (Section 21)
+    diagnostics = []
+    all_models = _model_registry.list_models(enabled_only=False)
+    for m in all_models:
+        prov_match = (m.provider.lower() == provider.lower())
+        is_compat = m in models
+        rej_reason = None
+        if "claude" in agent_id.lower() and not exec_policy.allow_real_claude_execution:
+            rej_reason = "CLAUDE_RUNTIME_DISABLED"
+        elif not is_executable:
+            rej_reason = "AGENT_EXECUTION_DISABLED"
+        elif not m.enabled:
+            rej_reason = "MODEL_DISABLED"
+        elif not prov_match:
+            rej_reason = "PROVIDER_MISMATCH"
+        elif not is_compat:
+            rej_reason = "CAPABILITY_OR_BINDING_MISMATCH"
+
+        diagnostics.append(ModelDiagnosticItem(
+            model_id=m.model_id,
+            registered=True,
+            enabled=m.enabled,
+            provider_match=prov_match,
+            capability_match=is_compat,
+            execution_allowed=is_executable,
+            compatible=is_compat,
+            rejection_reason=rej_reason,
+        ))
+
+    if format == "list":
+        return compat_items
+
+    return AgentModelsResponse(
+        agent_id=agent_id,
+        current_model_id=curr_model_id,
+        current_model_status=curr_model_status,
+        models=compat_items,
+        supported_models=compat_items,
+        diagnostics=diagnostics,
+    )
+

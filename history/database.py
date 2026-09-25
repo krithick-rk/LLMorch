@@ -959,8 +959,25 @@ class DatabaseService:
             );
             """)
 
+            # Target / Attack Repositories (Phase 9.2)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS target_repositories (
+                repository_path TEXT PRIMARY KEY,
+                repository_name TEXT NOT NULL,
+                repository_family TEXT NOT NULL,
+                git_revision TEXT,
+                is_git INTEGER NOT NULL DEFAULT 0,
+                file_count INTEGER NOT NULL DEFAULT 0,
+                languages TEXT NOT NULL DEFAULT '[]',
+                snapshot_id TEXT,
+                is_current INTEGER NOT NULL DEFAULT 0,
+                last_used TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """)
+
             conn.commit()
-            logger.info("Database schema initialized successfully (Phase 0-9.1 tables verified).")
+            logger.info("Database schema initialized successfully (Phase 0-9.2 tables verified).")
 
 
 def get_db_path() -> str:

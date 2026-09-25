@@ -7,16 +7,20 @@ GET /api/tasks/{task_id}    full detail with runs
 from __future__ import annotations
 
 import json
+import uuid
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from api.models import TaskSummary, TaskDetail, RunSummary, PaginatedResponse
+from api.models import TaskSummary, TaskDetail, RunSummary, PaginatedResponse, TaskCreateRequest
 from api.session import require_session, SessionInfo
 from history import DatabaseService, TaskRepository, RunRepository
 from history.database import get_db_path
+from history.phase9_repositories import TargetRepositoryRepository
+from api.realtime import event_manager
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -149,4 +153,139 @@ def get_task(task_id: str, session: SessionInfo = Depends(require_session)):
         preferred_roles=_j(row_dict.get("preferred_roles")),
         risk_level=row_dict.get("risk_level", "LOW"),
         runs=runs,
+    )
+
+
+@router.post("", response_model=TaskSummary)
+async def create_task(
+    request: TaskCreateRequest,
+    session: SessionInfo = Depends(require_session),
+):
+    """
+    Creates an investigation task bound to the authoritative Target / Attack Repository.
+    """
+    db = _get_db()
+    target_repo = TargetRepositoryRepository(db)
+
+    # 1. Authoritative repository determination
+    repo_path = request.repository_path
+    repo_name = None
+    repo_family = "UNKNOWN"
+    git_rev = None
+    snap_id = None
+
+    if not repo_path:
+        cur = target_repo.get_current()
+        if cur:
+            repo_path = cur["repository_path"]
+            repo_name = cur.get("repository_name", Path(repo_path).name)
+            repo_family = cur.get("repository_family", "UNKNOWN")
+            git_rev = cur.get("git_revision")
+            snap_id = cur.get("snapshot_id")
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="A target repository must be selected before creating an investigation task",
+            )
+    else:
+        p = Path(repo_path).resolve()
+        repo_name = p.name
+        cur = target_repo.get_current()
+        if cur and cur["repository_path"] == str(p):
+            repo_family = cur.get("repository_family", "UNKNOWN")
+            git_rev = cur.get("git_revision")
+            snap_id = cur.get("snapshot_id")
+
+    # 2. Build task
+    task_id = f"task-{uuid.uuid4().hex[:8]}"
+    workflow_id = request.workflow_id or f"wf-{uuid.uuid4().hex[:8]}"
+
+    if isinstance(request.inputs, dict):
+        inputs = dict(request.inputs)
+    elif isinstance(request.inputs, list):
+        inputs = {"items": request.inputs}
+    else:
+        inputs = {}
+    inputs["repository_path"] = repo_path
+    inputs["repository_name"] = repo_name
+    inputs["repository_family"] = repo_family
+    if git_rev:
+        inputs["git_revision"] = git_rev
+    if snap_id:
+        inputs["snapshot_id"] = snap_id
+
+    now = datetime.now(timezone.utc)
+    task_data = {
+        "task_id": task_id,
+        "workflow_id": workflow_id,
+        "parent_task_id": None,
+        "objective": request.objective,
+        "status": "QUEUED",
+        "assigned_agent_id": request.assigned_agent_id,
+        "retry_count": 0,
+        "created_at": now.isoformat(),
+        "started_at": None,
+        "completed_at": None,
+        "inputs": json.dumps(inputs),
+        "dependencies": json.dumps([]),
+        "required_capabilities": json.dumps(request.required_capabilities or []),
+        "preferred_roles": json.dumps([]),
+        "risk_level": request.risk_level or "LOW",
+    }
+
+    with db.get_connection() as conn:
+        conn.execute("""
+            INSERT INTO tasks (
+                task_id, workflow_id, parent_task_id, objective, inputs, dependencies,
+                required_capabilities, preferred_roles, risk_level, workspace_policy,
+                tool_policy, budget, status, assigned_agent_id, retry_count,
+                acceptance_criteria, result_ref, schema_version, created_at, started_at, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            task_data["task_id"],
+            task_data["workflow_id"],
+            task_data["parent_task_id"],
+            task_data["objective"],
+            task_data["inputs"],
+            task_data["dependencies"],
+            task_data["required_capabilities"],
+            task_data["preferred_roles"],
+            task_data["risk_level"],
+            json.dumps({"workspace_class": "sandboxed"}),
+            json.dumps({"allowed_tools": ["all"]}),
+            json.dumps({"max_tokens": 100000}),
+            task_data["status"],
+            task_data["assigned_agent_id"],
+            task_data["retry_count"],
+            json.dumps(["objective_completed"]),
+            None,
+            "1.0",
+            task_data["created_at"],
+            task_data["started_at"],
+            task_data["completed_at"],
+        ))
+        conn.commit()
+
+    # WebSocket broadcast
+    await event_manager.broadcast(
+        event_type="TASK_CREATED",
+        entity_type="task",
+        entity_id=task_id,
+        payload={
+            "task_id": task_id,
+            "workflow_id": workflow_id,
+            "objective": request.objective,
+            "assigned_agent_id": request.assigned_agent_id,
+            "repository_path": repo_path,
+        }
+    )
+
+    return TaskSummary(
+        task_id=task_id,
+        workflow_id=workflow_id,
+        objective=request.objective,
+        status="QUEUED",
+        assigned_agent_id=request.assigned_agent_id,
+        retry_count=0,
+        created_at=now,
     )

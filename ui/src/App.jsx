@@ -7,6 +7,8 @@ import { TokenDashboard } from './components/TokenDashboard'
 import { TaskDAGVisualizer } from './components/TaskDAGVisualizer'
 import { RepositoryGraphVisualizer } from './components/RepositoryGraphVisualizer'
 import { SettingsPage } from './components/SettingsPage'
+import { TargetRepositoryCard } from './components/TargetRepositoryCard'
+import { RepositorySelectorModal } from './components/RepositorySelectorModal'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -52,15 +54,21 @@ function RunOverviewPage({ refreshSignal }) {
   const [tasks, setTasks] = useState(null)
   const [agents, setAgents] = useState(null)
   const [findings, setFindings] = useState(null)
+  const [currentRepo, setCurrentRepo] = useState(null)
   const [isEstimateModalOpen, setIsEstimateModalOpen] = useState(false)
+  const [isRepoSelectorOpen, setIsRepoSelectorOpen] = useState(false)
 
   const load = useCallback(async () => {
-    const [t, a, f] = await Promise.all([
+    const [t, a, f, r] = await Promise.all([
       api.tasks({ limit: 200 }),
       api.agents({ limit: 50 }),
       api.findings({ limit: 200 }),
+      api.currentRepository().catch(() => null),
     ])
     setTasks(t); setAgents(a); setFindings(f)
+    if (r?.repository) {
+      setCurrentRepo(r.repository)
+    }
   }, [])
 
   useEffect(() => { load() }, [load, refreshSignal])
@@ -80,12 +88,22 @@ function RunOverviewPage({ refreshSignal }) {
           <div className="page-subtitle">Live investigation status, token accounting, and agent operations</div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => setIsRepoSelectorOpen(true)} id="btn-header-repo">
+            🎯 Target Repository
+          </button>
           <button className="btn btn-primary btn-sm" onClick={() => setIsEstimateModalOpen(true)}>
             📊 Estimate Repo Tokens
           </button>
           <button className="btn btn-secondary btn-sm" onClick={load}>↺ Refresh</button>
         </div>
       </div>
+
+      {/* Authoritative Target / Attack Repository Intake */}
+      <TargetRepositoryCard
+        currentRepo={currentRepo}
+        onOpenSelector={() => setIsRepoSelectorOpen(true)}
+        onOpenEstimator={() => setIsEstimateModalOpen(true)}
+      />
 
       {/* Authoritative Token Accounting & Budget Dashboard */}
       <TokenDashboard
@@ -155,9 +173,20 @@ function RunOverviewPage({ refreshSignal }) {
         }
       </div>
 
+      <RepositorySelectorModal
+        isOpen={isRepoSelectorOpen}
+        onClose={() => setIsRepoSelectorOpen(false)}
+        currentPath={currentRepo?.repository_path}
+        onSelected={(repo) => {
+          setCurrentRepo(repo)
+          load()
+        }}
+      />
+
       <RepoEstimateModal
         isOpen={isEstimateModalOpen}
         onClose={() => setIsEstimateModalOpen(false)}
+        initialRepoPath={currentRepo?.repository_path}
         onBudgetSet={() => load()}
       />
     </div>
@@ -514,30 +543,42 @@ function AgentPanelPage({ refreshSignal }) {
               <div key={a.agent_id} className={`agent-card ${isAvail ? 'available' : 'unavailable'}`}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
-                    <div className="agent-name">{a.agent_id}</div>
+                    <div className="agent-name" style={{ fontSize: '15px' }}>{a.agent_id}</div>
                     <div className="agent-provider">{a.provider} · {a.interface} · {a.role || 'general_analysis'}</div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
                     <StatusBadge status={a.health} />
                     {a.executable === false ? (
                       <span className="badge badge-paused" style={{ fontSize: '10px' }} title={a.execution_disabled_reason || 'Execution Disabled'}>
-                        EXECUTION DISABLED
+                        EXECUTION: DISABLED
                       </span>
                     ) : (
                       <span className="badge badge-running" style={{ fontSize: '10px' }}>
-                        EXECUTABLE
+                        EXECUTION: ENABLED
                       </span>
                     )}
                   </div>
                 </div>
 
-                {/* Active Model & Supported Models */}
+                {a.executable === false && (
+                  <div style={{ padding: '6px 10px', background: 'rgba(239,68,68,0.1)', borderRadius: '4px', border: '1px solid rgba(239,68,68,0.25)', fontSize: '11px', color: '#f87171' }}>
+                    <strong>Reason:</strong> {a.execution_disabled_reason || 'Local execution policy: Runtime execution disabled.'}
+                  </div>
+                )}
+
+                {/* Active Model & Compatible Models */}
                 <div style={{ padding: '8px 10px', background: 'var(--bg-card)', borderRadius: '6px', border: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Active Model:</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Current Model:</span>
                     <Mono style={{ fontSize: '12px', color: 'var(--accent-cyan)', fontWeight: 600 }}>
                       {a.current_model_id || a.model || 'auto'}
                     </Mono>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Compatible Models:</span>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {(a.supported_models || []).length}
+                    </span>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
                     {(a.supported_models || []).slice(0, 3).map(m => (
@@ -575,14 +616,14 @@ function AgentPanelPage({ refreshSignal }) {
                     title={a.executable === false ? (a.execution_disabled_reason || 'Execution disabled by policy') : 'Switch assigned agent'}
                     onClick={() => handleOpenSwitch(a)}
                   >
-                    ⇄ Switch
+                    ⇄ Switch Agent
                   </button>
                   <button
                     className="btn btn-secondary btn-sm"
                     style={{ flex: 1 }}
                     onClick={() => handleOpenModel(a)}
                   >
-                    ⚙ Model
+                    ⚙ Change Model
                   </button>
                   <button
                     className={`btn btn-sm ${a.enabled !== false ? 'btn-secondary' : 'btn-danger'}`}

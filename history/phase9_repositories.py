@@ -525,3 +525,112 @@ class ConfigurationRepository:
         default_settings = SystemSettings()
         self.save_settings(default_settings, updated_by="system")
         return default_settings
+
+
+class TargetRepositoryRepository:
+    """Persistent storage for authoritative target and recent attack repositories."""
+
+    def __init__(self, db_service: DatabaseService):
+        self.db = db_service
+
+    def save(
+        self,
+        repo_data: Optional[Dict[str, Any]] = None,
+        *,
+        repository_path: Optional[str] = None,
+        repository_name: Optional[str] = None,
+        repository_family: str = "UNKNOWN",
+        git_revision: Optional[str] = None,
+        is_git: bool = False,
+        file_count: int = 0,
+        languages: Optional[List[str]] = None,
+        snapshot_id: Optional[str] = None,
+        is_current: bool = False,
+        last_used: Optional[str] = None,
+        created_at: Optional[str] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        data = dict(repo_data or {})
+        if repository_path is not None:
+            data["repository_path"] = repository_path
+        if repository_name is not None:
+            data["repository_name"] = repository_name
+        if repository_family != "UNKNOWN" or "repository_family" not in data:
+            data["repository_family"] = repository_family
+        if git_revision is not None:
+            data["git_revision"] = git_revision
+        if is_git or "is_git" not in data:
+            data["is_git"] = is_git
+        if file_count != 0 or "file_count" not in data:
+            data["file_count"] = file_count
+        if languages is not None:
+            data["languages"] = languages
+        if snapshot_id is not None:
+            data["snapshot_id"] = snapshot_id
+        if is_current or "is_current" not in data:
+            data["is_current"] = is_current
+        if last_used is not None:
+            data["last_used"] = last_used
+        if created_at is not None:
+            data["created_at"] = created_at
+        data.update(kwargs)
+
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.get_connection() as conn:
+            if data.get("is_current"):
+                conn.execute("UPDATE target_repositories SET is_current = 0")
+            conn.execute("""
+                INSERT OR REPLACE INTO target_repositories (
+                    repository_path, repository_name, repository_family, git_revision,
+                    is_git, file_count, languages, snapshot_id, is_current, last_used, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                data["repository_path"],
+                data["repository_name"],
+                data.get("repository_family", "UNKNOWN"),
+                data.get("git_revision"),
+                1 if data.get("is_git") else 0,
+                data.get("file_count", 0),
+                json.dumps(data.get("languages", [])),
+                data.get("snapshot_id"),
+                1 if data.get("is_current") else 0,
+                data.get("last_used", now),
+                data.get("created_at", now),
+            ))
+            conn.commit()
+        return data
+
+    def set_current(self, repo_path: str) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE target_repositories SET is_current = 0")
+            conn.execute("""
+                UPDATE target_repositories
+                SET is_current = 1, last_used = ?
+                WHERE repository_path = ?
+            """, (now, repo_path))
+            conn.commit()
+
+    def get_current(self) -> Optional[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            row = conn.execute("SELECT * FROM target_repositories WHERE is_current = 1 LIMIT 1").fetchone()
+            if row:
+                d = dict(row)
+                d["languages"] = json.loads(d["languages"]) if d.get("languages") else []
+                d["is_git"] = bool(d.get("is_git"))
+                return d
+            return None
+
+    def list_recent(self, limit: int = 10) -> List[Dict[str, Any]]:
+        import os
+        with self.db.get_connection() as conn:
+            rows = conn.execute("SELECT * FROM target_repositories ORDER BY last_used DESC LIMIT ?", (limit,)).fetchall()
+            items = []
+            for r in rows:
+                d = dict(r)
+                d["languages"] = json.loads(d["languages"]) if d.get("languages") else []
+                d["is_git"] = bool(d.get("is_git"))
+                d["available"] = os.path.exists(d["repository_path"]) and os.path.isdir(d["repository_path"])
+                items.append(d)
+            return items
+

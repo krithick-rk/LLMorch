@@ -44,3 +44,6 @@ class ConfigManager:
     def get_execution_policy_config(self) -> Dict[str, Any]:
         return self._load_yaml("system.yaml").get("execution_policy", {})
 
+    def get_security_config(self) -> Dict[str, Any]:
+        return self._load_yaml("system.yaml").get("security", {})
+

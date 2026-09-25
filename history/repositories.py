@@ -936,4 +936,6 @@ from .phase9_repositories import (
     AgentSwitchRepository,
     ModelSwitchRepository,
     ConfigurationRepository,
+    TargetRepositoryRepository,
 )
+

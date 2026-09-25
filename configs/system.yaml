@@ -36,3 +36,12 @@ strategy:
   escalate_on_independent_confirmation_need: true
   stop_on_low_marginal_benefit: true
   max_retries_per_task: 2
+
+security:
+  allowed_repository_roots:
+    - /home/hackdac/Desktop
+    - /home/hackdac/Documents
+    - /home/hackdac/Projects
+    - /home/hackdac/Desktop/intern
+    - /tmp
+

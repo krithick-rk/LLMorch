@@ -6,7 +6,7 @@ safe for exposure over the API boundary (no raw secrets, no internal blobs by de
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from datetime import datetime
 from pydantic import BaseModel, Field
 
@@ -53,6 +53,18 @@ class TaskDetail(TaskSummary):
     preferred_roles: List[str] = Field(default_factory=list)
     risk_level: str = "LOW"
     runs: List[RunSummary] = Field(default_factory=list)
+
+
+class TaskCreateRequest(BaseModel):
+    objective: str
+    repository_path: Optional[str] = None
+    target_component: Optional[str] = "core"
+    risk_level: str = "MEDIUM"
+    assigned_agent_id: Optional[str] = None
+    required_capabilities: List[str] = Field(default_factory=lambda: ["repository_analysis", "security_review"])
+    workflow_id: Optional[str] = None
+    inputs: Union[List[Dict[str, Any]], Dict[str, Any]] = Field(default_factory=dict)
+
 
 
 # ─── Agents ───────────────────────────────────────────────────────────────────
@@ -184,6 +196,170 @@ class SnapshotSummary(BaseModel):
     created_at: Optional[datetime] = None
     total_files: int = 0
     family: Optional[str] = None
+
+
+class RepositoryValidateRequest(BaseModel):
+    repository_path: str
+
+
+class RepositoryValidateResponse(BaseModel):
+    valid: bool
+    path: str = ""
+    name: str = ""
+    repository_path: Optional[str] = None
+    repository_name: Optional[str] = None
+    git: bool = False
+    is_git: bool = False
+    git_revision: Optional[str] = None
+    repository_family: str = "UNKNOWN"
+    languages: List[str] = Field(default_factory=list)
+    file_count: int = 0
+    error: Optional[str] = None
+
+    def model_post_init(self, __context):
+        if not self.path and self.repository_path:
+            self.path = self.repository_path
+        elif not self.repository_path and self.path:
+            self.repository_path = self.path
+        if not self.name and self.repository_name:
+            self.name = self.repository_name
+        elif not self.repository_name and self.name:
+            self.repository_name = self.name
+        if self.is_git:
+            self.git = True
+        elif self.git:
+            self.is_git = True
+
+
+class RepositorySelectRequest(BaseModel):
+    repository_path: str
+
+
+class RepositoryInfo(BaseModel):
+    repository_path: str
+    repository_name: str
+    repository_family: str = "UNKNOWN"
+    git: bool = False
+    is_git: bool = False
+    git_revision: Optional[str] = None
+    snapshot_id: Optional[str] = None
+    file_count: int = 0
+    languages: List[str] = Field(default_factory=list)
+    status: str = "VALIDATED"
+    selected_at: Optional[datetime] = None
+    last_used: Optional[str] = None
+
+    def model_post_init(self, __context):
+        if self.is_git:
+            self.git = True
+        elif self.git:
+            self.is_git = True
+
+
+class RepositorySelectResponse(BaseModel):
+    success: bool
+    current_repository: Optional[RepositoryInfo] = None
+    repository: Optional[RepositoryInfo] = None
+    message: str = "Repository selected successfully"
+
+    def model_post_init(self, __context):
+        if not self.current_repository and self.repository:
+            self.current_repository = self.repository
+        elif not self.repository and self.current_repository:
+            self.repository = self.current_repository
+
+
+class CurrentRepositoryResponse(BaseModel):
+    selected: bool = False
+    is_selected: bool = False
+    repository: Optional[RepositoryInfo] = None
+
+    def model_post_init(self, __context):
+        if self.is_selected:
+            self.selected = True
+        elif self.selected:
+            self.is_selected = True
+
+
+class RecentRepositoryItem(BaseModel):
+    name: str = ""
+    path: str = ""
+    repository_name: Optional[str] = None
+    repository_path: Optional[str] = None
+    family: str = "UNKNOWN"
+    repository_family: str = "UNKNOWN"
+    git: bool = False
+    is_git: bool = False
+    git_revision: Optional[str] = None
+    last_used: Optional[str] = None
+    available: bool = True
+    is_available: bool = True
+    file_count: int = 0
+    languages: List[str] = Field(default_factory=list)
+
+    def model_post_init(self, __context):
+        if not self.name and self.repository_name:
+            self.name = self.repository_name
+        elif not self.repository_name and self.name:
+            self.repository_name = self.name
+        if not self.path and self.repository_path:
+            self.path = self.repository_path
+        elif not self.repository_path and self.path:
+            self.repository_path = self.path
+        if self.family != "UNKNOWN" and self.repository_family == "UNKNOWN":
+            self.repository_family = self.family
+        elif self.repository_family != "UNKNOWN" and self.family == "UNKNOWN":
+            self.family = self.repository_family
+        if self.is_git:
+            self.git = True
+        elif self.git:
+            self.is_git = True
+        if not self.available:
+            self.is_available = False
+        elif not self.is_available:
+            self.available = False
+
+
+class RecentRepositoriesResponse(BaseModel):
+    items: List[RecentRepositoryItem] = Field(default_factory=list)
+    repositories: List[RecentRepositoryItem] = Field(default_factory=list)
+
+    def model_post_init(self, __context):
+        if not self.items and self.repositories:
+            self.items = self.repositories
+        elif not self.repositories and self.items:
+            self.repositories = self.items
+
+
+class DirectoryEntry(BaseModel):
+    name: str
+    path: str
+    is_dir: bool = True
+    is_git: bool = False
+    is_repository: bool = False
+    has_children: bool = False
+    file_count: int = 0
+
+    def model_post_init(self, __context):
+        if self.is_repository:
+            self.is_git = True
+        elif self.is_git:
+            self.is_repository = True
+
+
+class DirectoryBrowseResponse(BaseModel):
+    current_path: str
+    parent_path: Optional[str] = None
+    allowed_roots: List[str] = Field(default_factory=list)
+    directories: List[DirectoryEntry] = Field(default_factory=list)
+    entries: List[DirectoryEntry] = Field(default_factory=list)
+
+    def model_post_init(self, __context):
+        if not self.directories and self.entries:
+            self.directories = self.entries
+        elif not self.entries and self.directories:
+            self.entries = self.directories
+
 
 
 # ─── Security Surface ─────────────────────────────────────────────────────────
@@ -320,6 +496,42 @@ class ModelDetail(ModelSummary):
     created_at: Optional[datetime] = None
 
 
+class ModelCompatibilityItem(BaseModel):
+    model_id: str
+    display_name: str
+    provider: str
+    context_window: int
+    max_output_tokens: int = 4096
+    capabilities: List[str] = Field(default_factory=list)
+    available: bool = True
+    compatible: bool = True
+    rejection_reason: Optional[str] = None
+    cost_per_million_input: float = 0.0
+    cost_per_million_output: float = 0.0
+    tier: Optional[str] = None
+
+
+class ModelDiagnosticItem(BaseModel):
+    model_id: str
+    registered: bool = True
+    enabled: bool = True
+    provider_match: bool = True
+    capability_match: bool = True
+    execution_allowed: bool = True
+    compatible: bool = True
+    rejection_reason: Optional[str] = None
+
+
+class AgentModelsResponse(BaseModel):
+    agent_id: str
+    current_model_id: Optional[str] = None
+    current_model_status: str = "VALID"  # VALID | LEGACY | UNREGISTERED
+    models: List[ModelCompatibilityItem] = Field(default_factory=list)
+    supported_models: List[ModelCompatibilityItem] = Field(default_factory=list)
+    diagnostics: List[ModelDiagnosticItem] = Field(default_factory=list)
+
+
+
 # ─── Phase 9.1: Switching ─────────────────────────────────────────────────────
 
 class AgentSwitchRequest(BaseModel):
@@ -346,12 +558,19 @@ class AgentSwitchResponse(BaseModel):
 
 class ModelSwitchRequest(BaseModel):
     agent_id: str
-    new_model_id: str
+    new_model_id: Optional[str] = None
+    model_id: Optional[str] = None
     reason: str
     task_id: Optional[str] = None
     run_id: Optional[str] = None
-    scope: str = "CURRENT_TASK"  # CURRENT_TASK | FUTURE_TASKS | GLOBAL
+    scope: str = "CURRENT_TASK"  # CURRENT_TASK | FUTURE_TASKS | GLOBAL | SESSION
     session_token: Optional[str] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        target = self.new_model_id or self.model_id
+        if target:
+            self.new_model_id = target
+            self.model_id = target
 
 
 class ModelSwitchResponse(BaseModel):
@@ -452,9 +671,6 @@ class EstimateCostRequest(BaseModel):
             self.repository_path = self.repo_path
         elif not self.repo_path and self.repository_path:
             self.repo_path = self.repository_path
-        if not self.repository_path:
-            self.repository_path = "."
-            self.repo_path = "."
 
 
 class EstimateCostResponse(BaseModel):

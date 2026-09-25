@@ -117,7 +117,8 @@ def test_e2e_agent_model_resolution(shared_env):
     # 2. Check model capabilities for AGY
     res_agent = client.get("/api/agents/agent-agy-01/models")
     assert res_agent.status_code == 200
-    agent_models = res_agent.json()
+    agent_models_data = res_agent.json()
+    agent_models = agent_models_data if isinstance(agent_models_data, list) else agent_models_data.get("models", [])
     assert len(agent_models) >= 1
     assert any("agy" in m["model_id"] for m in agent_models)
 

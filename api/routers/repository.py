@@ -10,8 +10,11 @@ GET /api/analysis-units/{unit_id}/security-surface
 from __future__ import annotations
 
 import json
-from datetime import datetime
-from typing import Optional
+import os
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -23,11 +26,27 @@ from api.models import (
     PaginatedResponse,
     EstimateCostRequest,
     EstimateCostResponse,
+    RepositoryValidateRequest,
+    RepositoryValidateResponse,
+    RepositorySelectRequest,
+    RepositoryInfo,
+    RepositorySelectResponse,
+    CurrentRepositoryResponse,
+    RecentRepositoryItem,
+    RecentRepositoriesResponse,
+    DirectoryEntry,
+    DirectoryBrowseResponse,
 )
 from api.session import require_session, SessionInfo
 from history.database import get_db_path, DatabaseService
-from history.repositories import RepositoryEstimateRepository
+from history.repositories import RepositoryEstimateRepository, EventRepository
+from history.phase9_repositories import TargetRepositoryRepository
+from configs.manager import ConfigManager
+from repository_intelligence.intake import RepositoryIntake
+from repository_intelligence.family import detect_repository_family
 from repository_intelligence.token_estimator import estimate_repository_tokens
+from api.realtime import event_manager
+from schemas.event import Event, EventType
 
 router = APIRouter(tags=["repository"])
 
@@ -52,6 +71,413 @@ def _j(v, default=None):
         return json.loads(v) if isinstance(v, str) else v
     except Exception:
         return default if default is not None else []
+
+
+def _is_path_allowed(path_str: str) -> bool:
+    try:
+        resolved = Path(path_str).resolve()
+        cfg = ConfigManager()
+        sec = cfg.get_security_config()
+        allowed = sec.get("allowed_repository_roots", [])
+        if not allowed:
+            return True
+        for root in allowed:
+            try:
+                resolved_root = Path(root).resolve()
+                resolved.relative_to(resolved_root)
+                return True
+            except ValueError:
+                continue
+        return False
+    except Exception:
+        return False
+
+
+def _validate_repo_path(path_str: str) -> RepositoryValidateResponse:
+    if not path_str or not path_str.strip():
+        return RepositoryValidateResponse(
+            valid=False,
+            repository_path="",
+            error="Repository path cannot be empty",
+        )
+
+    try:
+        p = Path(path_str.strip()).expanduser().resolve()
+    except Exception as e:
+        return RepositoryValidateResponse(
+            valid=False,
+            repository_path=path_str,
+            error=f"Invalid path format: {e}",
+        )
+
+    # Security root check
+    if not _is_path_allowed(str(p)):
+        return RepositoryValidateResponse(
+            valid=False,
+            repository_path=str(p),
+            error=f"Path '{p}' is outside configured allowed repository roots",
+        )
+
+    # Exists check
+    if not p.exists():
+        return RepositoryValidateResponse(
+            valid=False,
+            repository_path=str(p),
+            error=f"Directory '{p}' does not exist",
+        )
+
+    # Is directory check
+    if not p.is_dir():
+        return RepositoryValidateResponse(
+            valid=False,
+            repository_path=str(p),
+            error=f"Target path '{p}' is a file, not a directory",
+        )
+
+    # Readable check
+    if not os.access(p, os.R_OK):
+        return RepositoryValidateResponse(
+            valid=False,
+            repository_path=str(p),
+            error="Repository exists but is not readable by LLMorch server",
+        )
+
+    # Build / cache check
+    if p.name in {".git", "node_modules", "__pycache__", "build", "dist", ".cache", ".pytest_cache"}:
+        return RepositoryValidateResponse(
+            valid=False,
+            repository_path=str(p),
+            error=f"Directory '{p.name}' is a build/cache directory, not a valid repository root",
+        )
+
+    try:
+        intake = RepositoryIntake(str(p))
+        snapshot = intake.create_snapshot()
+        git_rev = intake.get_git_commit()
+        family_type, _ = detect_repository_family(p)
+
+        # Detect prominent languages
+        lang_set = set()
+        EXT_MAP = {
+            ".c": "C", ".h": "C", ".cpp": "C++", ".hpp": "C++",
+            ".sv": "SystemVerilog", ".v": "Verilog", ".vhdl": "VHDL",
+            ".py": "Python", ".rs": "Rust", ".go": "Go",
+            ".js": "JavaScript", ".ts": "TypeScript", ".json": "JSON",
+            ".yaml": "YAML", ".yml": "YAML", ".sh": "Shell"
+        }
+        for root, dirs, files in os.walk(p):
+            dirs[:] = [d for d in dirs if d not in {".git", "node_modules", "__pycache__", "build", "dist", ".cache", ".venv"}]
+            for f in files:
+                ext = os.path.splitext(f)[1].lower()
+                if ext in EXT_MAP:
+                    lang_set.add(EXT_MAP[ext])
+            if len(lang_set) >= 8:
+                break
+
+        return RepositoryValidateResponse(
+            valid=True,
+            repository_path=str(p),
+            repository_name=p.name,
+            repository_family=family_type.value,
+            git_revision=git_rev,
+            is_git=bool(git_rev),
+            languages=sorted(list(lang_set)),
+            file_count=snapshot.file_count,
+            error=None,
+        )
+    except Exception as e:
+        return RepositoryValidateResponse(
+            valid=False,
+            repository_path=str(p),
+            error=f"Repository validation failed: {str(e)}",
+        )
+
+
+# ─── Phase 9.2: Target Repository Management ───────────────────────────────────
+
+@router.post("/api/repositories/validate", response_model=RepositoryValidateResponse, tags=["repository"])
+def validate_repository(
+    request: RepositoryValidateRequest,
+    session: SessionInfo = Depends(require_session),
+):
+    """Validates candidate target repository path against security boundaries and architecture."""
+    return _validate_repo_path(request.repository_path)
+
+
+@router.post("/api/repositories/select", response_model=RepositorySelectResponse, tags=["repository"])
+async def select_repository(
+    request: RepositorySelectRequest,
+    session: SessionInfo = Depends(require_session),
+):
+    """Sets the authoritative Target / Attack Repository for the investigation."""
+    v = _validate_repo_path(request.repository_path)
+    if not v.valid:
+        raise HTTPException(status_code=400, detail=v.error or "Invalid repository path")
+
+    db = _get_db()
+    target_repo = TargetRepositoryRepository(db)
+    snapshot_id = f"snap-{uuid.uuid4().hex[:12]}"
+
+    target_repo.save(
+        repository_path=v.repository_path,
+        repository_name=v.repository_name or Path(v.repository_path).name,
+        repository_family=v.repository_family or "UNKNOWN",
+        git_revision=v.git_revision,
+        is_git=v.is_git,
+        file_count=v.file_count,
+        languages=v.languages,
+        snapshot_id=snapshot_id,
+        is_current=True,
+    )
+
+    # Record event in event repository
+    try:
+        ev_repo = EventRepository(db)
+        ev_repo.record(Event(
+            event_type=EventType.REPOSITORY_SNAPSHOT_CREATED,
+            actor=f"analyst:{session.session_id[:8]}",
+            payload={
+                "repository_path": v.repository_path,
+                "repository_name": v.repository_name,
+                "repository_family": v.repository_family,
+                "git_revision": v.git_revision,
+                "snapshot_id": snapshot_id,
+            }
+        ))
+    except Exception:
+        pass
+
+    # Realtime broadcast
+    await event_manager.broadcast(
+        event_type="REPOSITORY_SELECTED",
+        entity_type="repository",
+        entity_id=v.repository_path,
+        payload={
+            "repository_path": v.repository_path,
+            "repository_name": v.repository_name,
+            "repository_family": v.repository_family,
+            "git_revision": v.git_revision,
+            "snapshot_id": snapshot_id,
+            "file_count": v.file_count,
+            "languages": v.languages,
+        }
+    )
+
+    info = RepositoryInfo(
+        repository_path=v.repository_path,
+        repository_name=v.repository_name or Path(v.repository_path).name,
+        repository_family=v.repository_family or "UNKNOWN",
+        git_revision=v.git_revision,
+        is_git=v.is_git,
+        languages=v.languages,
+        file_count=v.file_count,
+        snapshot_id=snapshot_id,
+        status="VALIDATED",
+        last_used=datetime.now(timezone.utc).isoformat(),
+    )
+    return RepositorySelectResponse(
+        success=True,
+        repository=info,
+        message=f"Target repository '{info.repository_name}' successfully selected and validated",
+    )
+
+
+@router.get("/api/repositories/current", response_model=CurrentRepositoryResponse, tags=["repository"])
+def get_current_repository(session: SessionInfo = Depends(require_session)):
+    """Retrieves authoritative current Target / Attack Repository."""
+    db = _get_db()
+    target_repo = TargetRepositoryRepository(db)
+    current = target_repo.get_current()
+    if not current:
+        cfg = ConfigManager()
+        sys_repo = cfg.get_system_config().get("repository_root")
+        if sys_repo and Path(sys_repo).exists() and Path(sys_repo).is_dir():
+            v = _validate_repo_path(sys_repo)
+            if v.valid:
+                target_repo.save(
+                    repository_path=v.repository_path,
+                    repository_name=v.repository_name or Path(v.repository_path).name,
+                    repository_family=v.repository_family or "UNKNOWN",
+                    git_revision=v.git_revision,
+                    is_git=v.is_git,
+                    file_count=v.file_count,
+                    languages=v.languages,
+                    is_current=True,
+                )
+                current = target_repo.get_current()
+
+    if not current:
+        return CurrentRepositoryResponse(is_selected=False, repository=None)
+
+    langs = current.get("languages", [])
+    if isinstance(langs, str):
+        try:
+            langs = json.loads(langs)
+        except Exception:
+            langs = []
+
+    return CurrentRepositoryResponse(
+        is_selected=True,
+        repository=RepositoryInfo(
+            repository_path=current["repository_path"],
+            repository_name=current.get("repository_name", Path(current["repository_path"]).name),
+            repository_family=current.get("repository_family", "UNKNOWN"),
+            git_revision=current.get("git_revision"),
+            is_git=bool(current.get("is_git")),
+            languages=langs,
+            file_count=current.get("file_count", 0),
+            snapshot_id=current.get("snapshot_id"),
+            status="VALIDATED",
+            last_used=current.get("last_used"),
+        )
+    )
+
+
+@router.get("/api/repositories/recent", response_model=RecentRepositoriesResponse, tags=["repository"])
+def list_recent_repositories(
+    limit: int = Query(20, ge=1, le=50),
+    session: SessionInfo = Depends(require_session),
+):
+    """Lists recently used target repositories."""
+    db = _get_db()
+    target_repo = TargetRepositoryRepository(db)
+    rows = target_repo.list_recent(limit=limit)
+    items = []
+    for r in rows:
+        path_exists = os.path.exists(r["repository_path"]) and os.path.isdir(r["repository_path"])
+        langs = r.get("languages", [])
+        if isinstance(langs, str):
+            try:
+                langs = json.loads(langs)
+            except Exception:
+                langs = []
+        items.append(RecentRepositoryItem(
+            repository_path=r["repository_path"],
+            repository_name=r.get("repository_name", Path(r["repository_path"]).name),
+            repository_family=r.get("repository_family", "UNKNOWN"),
+            git_revision=r.get("git_revision"),
+            is_git=bool(r.get("is_git")),
+            file_count=r.get("file_count", 0),
+            languages=langs,
+            last_used=r.get("last_used", ""),
+            is_available=path_exists,
+        ))
+    return RecentRepositoriesResponse(repositories=items)
+
+
+@router.get("/api/repositories/browse", response_model=DirectoryBrowseResponse, tags=["repository"])
+def browse_directory(
+    path: Optional[str] = Query(None),
+    session: SessionInfo = Depends(require_session),
+):
+    """
+    Secure local directory navigator restricted to configured allowed roots.
+    Never exposes file contents.
+    """
+    cfg = ConfigManager()
+    sec = cfg.get_security_config()
+    allowed_roots_raw = sec.get("allowed_repository_roots", [
+        "/home/hackdac/Desktop",
+        "/home/hackdac/Documents",
+        "/tmp",
+    ])
+    allowed_roots = []
+    for r in allowed_roots_raw:
+        try:
+            rp = Path(r).resolve()
+            if rp.exists():
+                allowed_roots.append(str(rp))
+        except Exception:
+            pass
+
+    # If no path specified, list top allowed roots
+    if not path or not path.strip():
+        entries = []
+        for ar in allowed_roots:
+            p = Path(ar)
+            entries.append(DirectoryEntry(
+                name=p.name or str(p),
+                path=str(p),
+                is_dir=True,
+                is_repository=(p / ".git").exists(),
+                file_count=0,
+            ))
+        return DirectoryBrowseResponse(
+            current_path="",
+            parent_path=None,
+            allowed_roots=allowed_roots,
+            entries=entries,
+        )
+
+    # Validate target directory
+    try:
+        target = Path(path.strip()).expanduser().resolve()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid path format: {e}")
+
+    # Check that target is under an allowed root
+    matched_root = None
+    for ar in allowed_roots:
+        try:
+            target.relative_to(ar)
+            matched_root = ar
+            break
+        except ValueError:
+            continue
+
+    if not matched_root:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access denied: Path '{target}' is outside configured allowed repository roots"
+        )
+
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=404, detail=f"Directory '{target}' not found")
+
+    parent_path = None
+    if str(target) != matched_root and str(target) != "/":
+        parent_path = str(target.parent)
+
+    entries = []
+    try:
+        for item in sorted(target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            if item.name.startswith(".") or item.name in {"node_modules", "__pycache__", "build", "dist", ".cache"}:
+                continue
+            is_directory = item.is_dir()
+            # If symlink, ensure it does not escape allowed roots
+            if item.is_symlink():
+                try:
+                    res_symlink = item.resolve()
+                    symlink_allowed = any(
+                        res_symlink == Path(ar) or str(res_symlink).startswith(str(Path(ar)) + "/")
+                        for ar in allowed_roots
+                    )
+                    if not symlink_allowed:
+                        continue
+                    is_directory = res_symlink.is_dir()
+                except Exception:
+                    continue
+
+            is_repo = False
+            if is_directory:
+                is_repo = (item / ".git").exists()
+
+            entries.append(DirectoryEntry(
+                name=item.name,
+                path=str(item),
+                is_dir=is_directory,
+                is_repository=is_repo,
+                file_count=0,
+            ))
+    except PermissionError:
+        raise HTTPException(status_code=403, detail=f"Permission denied accessing directory '{target}'")
+
+    return DirectoryBrowseResponse(
+        current_path=str(target),
+        parent_path=parent_path,
+        allowed_roots=allowed_roots,
+        entries=entries,
+    )
 
 
 # ─── Repositories / Snapshots ─────────────────────────────────────────────────
@@ -232,8 +658,18 @@ def estimate_cost(
     Differentiates repository footprint from LLM-scoped security tokens.
     Excludes quarantined secrets safely.
     """
+    repo_path = request.repository_path
+    if not repo_path:
+        db = _get_db()
+        target_repo = TargetRepositoryRepository(db)
+        cur = target_repo.get_current()
+        if cur:
+            repo_path = cur["repository_path"]
+        else:
+            raise HTTPException(status_code=400, detail="Repository path is required or must be selected first")
+
     est = estimate_repository_tokens(
-        repository_path=request.repository_path,
+        repository_path=repo_path,
         selected_models=request.selected_models,
         analysis_policy=request.analysis_policy,
     )

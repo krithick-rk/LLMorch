@@ -13,6 +13,7 @@ from .repositories import (
     ReproSpecRepository,
     ReproducerRepository,
     ValidationResultRepository,
+    TargetRepositoryRepository,
 )
 
 __all__ = [
@@ -26,4 +27,6 @@ __all__ = [
     "ReproSpecRepository",
     "ReproducerRepository",
     "ValidationResultRepository",
+    "TargetRepositoryRepository",
 ]
+

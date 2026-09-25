@@ -27,14 +27,18 @@ export const api = {
   // Tasks
   tasks: (params = {}) => req('/tasks?' + new URLSearchParams(params)),
   task:  (id) => req(`/tasks/${id}`),
+  createTask: (body) => req('/tasks', { method: 'POST', body: JSON.stringify(body) }),
 
   // Agents
   agents: (params = {}) => req('/agents?' + new URLSearchParams(params)),
+  getAgents: (params = {}) => req('/agents?' + new URLSearchParams(params)),
   agent:  (id) => req(`/agents/${id}`),
   agentModels: (agentId) => req(`/agents/${agentId}/models`),
+  getAgentModels: (agentId) => req(`/agents/${agentId}/models`),
 
   // Models (Phase 9.1)
   models: (params = {}) => req('/models?' + new URLSearchParams(params)),
+  getModels: (params = {}) => req('/models?' + new URLSearchParams(params)),
   model:  (id) => req(`/models/${id}`),
 
   // Findings
@@ -48,8 +52,13 @@ export const api = {
   // Timeline
   timeline: (params = {}) => req('/timeline?' + new URLSearchParams(params)),
 
-  // Repository
+  // Repository & Intake (Phase 9.2)
   repositories: (params = {}) => req('/repositories?' + new URLSearchParams(params)),
+  currentRepository: () => req('/repositories/current'),
+  recentRepositories: (params = {}) => req('/repositories/recent?' + new URLSearchParams(params)),
+  validateRepository: (body) => req('/repositories/validate', { method: 'POST', body: JSON.stringify(body) }),
+  selectRepository: (body) => req('/repositories/select', { method: 'POST', body: JSON.stringify(body) }),
+  browseDirectory: (params = {}) => req('/repositories/browse?' + new URLSearchParams(params)),
   snapshot:     (id) => req(`/snapshots/${id}`),
   analysisUnits:(params = {}) => req('/analysis-units?' + new URLSearchParams(params)),
   analysisUnit: (id) => req(`/analysis-units/${id}`),
@@ -77,6 +86,7 @@ export const api = {
   audit: (params = {}) => req('/controls/audit?' + new URLSearchParams(params)),
   agentSwitch: (body) => req('/controls/agent-switch', { method: 'POST', body: JSON.stringify(body) }),
   modelSwitch: (body) => req('/controls/model-switch', { method: 'POST', body: JSON.stringify(body) }),
+  switchModel: (body) => req('/controls/model-switch', { method: 'POST', body: JSON.stringify(body) }),
   switches: (params = {}) => req('/controls/switches?' + new URLSearchParams(params)),
 
   // Settings & Configuration (Phase 9.1)

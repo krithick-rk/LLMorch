@@ -216,31 +216,54 @@ export function SettingsPage({ refreshSignal }) {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Model ID</th>
+                  <th>Model</th>
                   <th>Provider</th>
-                  <th>Context Window</th>
-                  <th>Cost Tier</th>
-                  <th>Reasoning Score</th>
+                  <th>Context</th>
                   <th>Capabilities</th>
+                  <th>Enabled</th>
+                  <th>Runtime Availability</th>
                 </tr>
               </thead>
               <tbody>
-                {models.map(m => (
-                  <tr key={m.model_id}>
-                    <td><Mono>{m.model_id}</Mono></td>
-                    <td>{m.provider}</td>
-                    <td>{(m.context_window / 1000).toFixed(0)}k</td>
-                    <td>{m.cost_tier}</td>
-                    <td>{(m.reasoning_score * 10).toFixed(1)}/10</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                        {(m.capabilities || []).map(c => (
-                          <span key={c} className="cap-tag">{c}</span>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {models.map(m => {
+                  const ctxFormatted = (m.context_window || 0) >= 1000000
+                    ? `${((m.context_window || 0) / 1000000).toFixed(0)}M`
+                    : `${Math.round((m.context_window || 0) / 1000)}K`;
+                  const isClaude = (m.provider || '').toLowerCase().includes('anthropic') || (m.model_id || '').toLowerCase().includes('claude');
+                  return (
+                    <tr key={m.model_id}>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{m.display_name || m.model_id}</div>
+                        <Mono style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{m.model_id}</Mono>
+                      </td>
+                      <td>{m.provider}</td>
+                      <td><Mono>{ctxFormatted}</Mono></td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                          {(m.capabilities || []).map(c => (
+                            <span key={c} className="cap-tag" style={{ fontSize: '10px' }}>{c}</span>
+                          ))}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge ${m.enabled !== false ? 'badge-success' : 'badge-paused'}`} style={{ fontSize: '10px' }}>
+                          {m.enabled !== false ? 'ENABLED' : 'DISABLED'}
+                        </span>
+                      </td>
+                      <td>
+                        {isClaude ? (
+                          <span className="badge badge-paused" style={{ fontSize: '10px' }} title="Claude Code real execution disabled by policy">
+                            DISABLED (POLICY)
+                          </span>
+                        ) : (
+                          <span className="badge badge-running" style={{ fontSize: '10px' }}>
+                            AVAILABLE
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

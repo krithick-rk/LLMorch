@@ -260,14 +260,48 @@ class AgentSwitcher:
         Switches the model associated with an agent or task.
         Validates model availability and compatibility via ModelRegistry.
         """
-        # Validate model
+        # 1. Validate switch scope
+        valid_scopes = {"CURRENT_TASK", "FUTURE_TASKS", "ALL_TASKS", "GLOBAL"}
+        if scope not in valid_scopes:
+            raise LLMorchError(
+                f"Invalid switch scope '{scope}'. Allowed: {sorted(list(valid_scopes))}",
+                code=ErrorCode.INVALID_STATE_TRANSITION
+            )
+
+        # 2. Validate agent exists
+        agent = self.agent_registry.get_agent(agent_id)
+        if not agent:
+            raise LLMorchError(
+                f"Agent '{agent_id}' not found in AgentRegistry",
+                code=ErrorCode.AGENT_NOT_FOUND
+            )
+
+        # 3. Validate agent permits execution under ExecutionPolicy
+        from scheduler.execution_policy import get_execution_policy
+        exec_policy = get_execution_policy()
+        if not exec_policy.is_agent_executable(agent_id):
+            reason_disabled = exec_policy.get_agent_disabled_reason(agent_id) or "Execution disabled by policy"
+            raise LLMorchError(
+                f"Agent '{agent_id}' execution is disabled: {reason_disabled}",
+                code=ErrorCode.INVALID_STATE_TRANSITION
+            )
+
+        # 4. Validate model exists in ModelRegistry
         model = self.model_registry.get_model(new_model_id)
         if not model:
-            raise LLMorchError(f"Model '{new_model_id}' not found in ModelRegistry", code=ErrorCode.INVALID_STATE_TRANSITION)
+            raise LLMorchError(
+                f"Model '{new_model_id}' not found in ModelRegistry",
+                code=ErrorCode.INVALID_STATE_TRANSITION
+            )
 
+        # 5. Validate model is enabled
         if not model.enabled:
-            raise LLMorchError(f"Model '{new_model_id}' is disabled", code=ErrorCode.INVALID_STATE_TRANSITION)
+            raise LLMorchError(
+                f"Model '{new_model_id}' is disabled",
+                code=ErrorCode.INVALID_STATE_TRANSITION
+            )
 
+        # 6. Validate model compatibility with agent
         if not self.model_registry.is_model_supported_by_agent(agent_id, new_model_id):
             supported = self.model_registry.get_models_for_agent(agent_id)
             raise LLMorchError(
@@ -275,8 +309,7 @@ class AgentSwitcher:
                 code=ErrorCode.INVALID_STATE_TRANSITION
             )
 
-        agent = self.agent_registry.get_agent(agent_id)
-        prev_model_id = agent.current_model_id or agent.model if agent else "unknown"
+        prev_model_id = agent.current_model_id or agent.model or "unknown"
 
         # Emit REQUESTED event
         self.event_repo.record(Event(
@@ -294,6 +327,12 @@ class AgentSwitcher:
         # Update Agent active model
         if agent:
             self.agent_registry.set_agent_model(agent_id, new_model_id)
+            if hasattr(self, "db") and self.db:
+                try:
+                    with self.db.get_connection() as conn:
+                        conn.execute("UPDATE agents SET model = ? WHERE agent_id = ?", (new_model_id, agent_id))
+                except Exception:
+                    pass
 
         # Record audit entry
         record = self.model_switch_repo.record_switch(
