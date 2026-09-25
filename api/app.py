@@ -38,6 +38,8 @@ from api.routers import (
     models,
     tokens,
     settings,
+    tools,
+    analysis,
 )
 
 # ─── App ──────────────────────────────────────────────────────────────────────
@@ -85,6 +87,8 @@ app.include_router(timeline.router)
 app.include_router(repository.router)
 app.include_router(validation.router)
 app.include_router(controls.router)
+app.include_router(tools.router)
+app.include_router(analysis.router)
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

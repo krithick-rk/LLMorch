@@ -9,6 +9,10 @@ import { RepositoryGraphVisualizer } from './components/RepositoryGraphVisualize
 import { SettingsPage } from './components/SettingsPage'
 import { TargetRepositoryCard } from './components/TargetRepositoryCard'
 import { RepositorySelectorModal } from './components/RepositorySelectorModal'
+// Phase 9.3 components
+import { AgentWorkflowPage } from './components/AgentWorkflow/AgentWorkflow'
+import { ToolsPage } from './components/Tools/ToolsPage'
+import { TargetRepositoryPage } from './components/Repository/TargetRepositoryPage'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1224,17 +1228,45 @@ function GlobalIntelligencePage({ refreshSignal }) {
 
 // ─── App Shell ────────────────────────────────────────────────────────────────
 
-const PAGES = [
-  { id: 'overview',    label: 'Run Overview',        icon: '🚀' },
-  { id: 'dag',         label: 'Task DAG',            icon: '🔗' },
-  { id: 'repo',        label: 'Repository Graph',    icon: '🗺️' },
-  { id: 'agents',      label: 'Agent Panel',         icon: '🤖' },
-  { id: 'hypothesis',  label: 'Hypotheses',          icon: '💡' },
-  { id: 'evidence',    label: 'Evidence Viewer',     icon: '🔐' },
-  { id: 'timeline',    label: 'Timeline',            icon: '📅' },
-  { id: 'dossier',     label: 'Finding Dossier',     icon: '📂' },
-  { id: 'intel',       label: 'Global Intelligence', icon: '🌐' },
-  { id: 'settings',    label: 'Settings & Policy',   icon: '⚙️' },
+// Navigation structure — Phase 9.3
+// DAG and Repository Graph removed from analyst-facing nav (backends preserved)
+const NAV_SECTIONS = [
+  {
+    label: 'Investigation',
+    pages: [
+      { id: 'overview',     label: 'Run Overview',      icon: '🚀' },
+      { id: 'workflow',     label: 'Agent Workflow',    icon: '⚡' },
+      { id: 'target-repo',  label: 'Target Repository', icon: '🎯' },
+    ],
+  },
+  {
+    label: 'Operations',
+    pages: [
+      { id: 'agents',       label: 'Agents',            icon: '🤖' },
+      { id: 'tools',        label: 'Tools',             icon: '🔧' },
+    ],
+  },
+  {
+    label: 'Analysis',
+    pages: [
+      { id: 'hypothesis',   label: 'Hypotheses',        icon: '💡' },
+      { id: 'evidence',     label: 'Evidence',          icon: '🔐' },
+      { id: 'timeline',     label: 'Timeline',          icon: '📅' },
+      { id: 'dossier',      label: 'Finding Dossier',   icon: '📂' },
+    ],
+  },
+  {
+    label: 'Intelligence',
+    pages: [
+      { id: 'intel',        label: 'Global Intel',      icon: '🌐' },
+    ],
+  },
+  {
+    label: 'Control Plane',
+    pages: [
+      { id: 'settings',     label: 'Settings & Policy', icon: '⚙️' },
+    ],
+  },
 ]
 
 export default function App() {
@@ -1266,19 +1298,23 @@ export default function App() {
   useEffect(() => { setWsConnected(isConnected) }, [isConnected])
 
   const renderPage = () => {
-    const props = { refreshSignal }
+    const props = { refreshSignal, onNavigate: setPage }
     switch (page) {
-      case 'overview':   return <RunOverviewPage {...props} />
-      case 'dag':        return <TaskDAGPage {...props} />
-      case 'repo':       return <RepositoryGraphPage {...props} />
-      case 'agents':     return <AgentPanelPage {...props} />
-      case 'hypothesis': return <HypothesisPanelPage {...props} />
-      case 'evidence':   return <EvidenceViewerPage {...props} />
-      case 'timeline':   return <TimelinePage {...props} />
-      case 'dossier':    return <FindingDossierPage {...props} />
-      case 'intel':      return <GlobalIntelligencePage {...props} />
-      case 'settings':   return <SettingsPage {...props} />
-      default:           return <RunOverviewPage {...props} />
+      case 'overview':     return <RunOverviewPage {...props} />
+      case 'workflow':     return <AgentWorkflowPage {...props} />
+      case 'target-repo':  return <TargetRepositoryPage {...props} />
+      case 'tools':        return <ToolsPage {...props} />
+      // Legacy pages (still accessible via URL or code, nav entries removed)
+      case 'dag':          return <TaskDAGPage {...props} />
+      case 'repo':         return <RepositoryGraphPage {...props} />
+      case 'agents':       return <AgentPanelPage {...props} />
+      case 'hypothesis':   return <HypothesisPanelPage {...props} />
+      case 'evidence':     return <EvidenceViewerPage {...props} />
+      case 'timeline':     return <TimelinePage {...props} />
+      case 'dossier':      return <FindingDossierPage {...props} />
+      case 'intel':        return <GlobalIntelligencePage {...props} />
+      case 'settings':     return <SettingsPage {...props} />
+      default:             return <RunOverviewPage {...props} />
     }
   }
 
@@ -1303,42 +1339,24 @@ export default function App() {
       </header>
 
       <div className="app-body">
-        {/* Sidebar */}
+        {/* Sidebar — Phase 9.3 nav */}
         <nav className="sidebar">
-          <div className="sidebar-section">
-            <div className="sidebar-label">Investigation</div>
-            {PAGES.slice(0,4).map(p => (
-              <div key={p.id} className={`nav-item ${page === p.id ? 'active' : ''}`} onClick={() => setPage(p.id)}>
-                <span className="icon">{p.icon}</span>
-                {p.label}
-              </div>
-            ))}
-          </div>
-          <div className="sidebar-section">
-            <div className="sidebar-label">Analysis</div>
-            {PAGES.slice(4,8).map(p => (
-              <div key={p.id} className={`nav-item ${page === p.id ? 'active' : ''}`} onClick={() => setPage(p.id)}>
-                <span className="icon">{p.icon}</span>
-                {p.label}
-              </div>
-            ))}
-          </div>
-          <div className="sidebar-section">
-            <div className="sidebar-label">Intelligence</div>
-            {PAGES.slice(8,9).map(p => (
-              <div key={p.id} className={`nav-item ${page === p.id ? 'active' : ''}`} onClick={() => setPage(p.id)}>
-                <span className="icon">{p.icon}</span>
-                {p.label}
-              </div>
-            ))}
-          </div>
-          <div className="sidebar-section">
-            <div className="sidebar-label">Control Plane</div>
-            <div className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => setPage('settings')}>
-              <span className="icon">⚙️</span>
-              Settings & Policy
+          {NAV_SECTIONS.map(section => (
+            <div key={section.label} className="sidebar-section">
+              <div className="sidebar-label">{section.label}</div>
+              {section.pages.map(p => (
+                <div
+                  key={p.id}
+                  id={`nav-${p.id}`}
+                  className={`nav-item ${page === p.id ? 'active' : ''}`}
+                  onClick={() => setPage(p.id)}
+                >
+                  <span className="icon">{p.icon}</span>
+                  {p.label}
+                </div>
+              ))}
             </div>
-          </div>
+          ))}
         </nav>
 
         {/* Main content */}

@@ -19,6 +19,7 @@ from api.models import (
     ModelCompatibilityItem,
     ModelDiagnosticItem,
     AgentModelsResponse,
+    AgentRoleResponse,
     PaginatedResponse,
 )
 from api.session import require_session, SessionInfo
@@ -323,4 +324,81 @@ def get_agent_models(
         supported_models=compat_items,
         diagnostics=diagnostics,
     )
+
+
+@router.get("/{agent_id}/roles", response_model=AgentRoleResponse)
+def get_agent_roles(
+    agent_id: str,
+    task_id: Optional[str] = Query(None),
+    session: SessionInfo = Depends(require_session),
+):
+    """Returns available roles and the active role for an agent (optionally scoped to a task)."""
+    db = _get_db()
+    from history.phase9_repositories import AgentRoleRepository
+    from registry.agent_registry import AgentRegistry, AVAILABLE_ROLES
+
+    role_repo = AgentRoleRepository(db)
+    active_role = role_repo.get_role(agent_id, task_id=task_id)
+
+    return AgentRoleResponse(
+        agent_id=agent_id,
+        role=active_role,
+        task_id=task_id,
+        available_roles=AVAILABLE_ROLES,
+        message=f"Active role for {agent_id} is '{active_role}'",
+    )
+
+
+@router.post("/{agent_id}/role", response_model=AgentRoleResponse)
+async def change_agent_role(
+    agent_id: str,
+    request: AgentRoleChangeRequest,
+    session: SessionInfo = Depends(require_session),
+):
+    """
+    Changes the assigned role for an agent (globally or task-scoped).
+    Creates an auditable event and broadcasts AGENT_ROLE_CHANGED over WebSocket.
+    """
+    db = _get_db()
+    from history.phase9_repositories import AgentRoleRepository
+    from registry.agent_registry import AVAILABLE_ROLES
+    from api.events import event_manager
+
+    if request.role not in AVAILABLE_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Role '{request.role}' is not in configured available roles: {AVAILABLE_ROLES}",
+        )
+
+    role_repo = AgentRoleRepository(db)
+    assignment = role_repo.assign_role(
+        agent_id=agent_id,
+        role=request.role,
+        task_id=request.task_id,
+        assigned_by=session.role or "analyst",
+        reason=request.reason,
+    )
+
+    # Broadcast realtime event
+    await event_manager.broadcast(
+        event_type="AGENT_ROLE_CHANGED",
+        entity_type="agent",
+        entity_id=agent_id,
+        payload={
+            "agent_id": agent_id,
+            "role": request.role,
+            "task_id": request.task_id,
+            "assignment_id": assignment["assignment_id"],
+            "reason": request.reason,
+        },
+    )
+
+    return AgentRoleResponse(
+        agent_id=agent_id,
+        role=request.role,
+        task_id=request.task_id,
+        available_roles=AVAILABLE_ROLES,
+        message=f"Successfully updated role for {agent_id} to '{request.role}'",
+    )
+
 

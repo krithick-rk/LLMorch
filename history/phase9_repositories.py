@@ -634,3 +634,387 @@ class TargetRepositoryRepository:
                 items.append(d)
             return items
 
+
+class AnalystInstructionRepository:
+    """Persistent storage for analyst instructions."""
+
+    def __init__(self, db_service: DatabaseService):
+        self.db = db_service
+
+    def save(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        inst_id = data.get("instruction_id") or f"inst-{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO analyst_instructions (
+                    instruction_id, run_id, task_id, attempt_id, agent_id, role,
+                    message, scope, requested_action, created_by, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                inst_id,
+                data.get("run_id"),
+                data["task_id"],
+                data.get("attempt_id", 1),
+                data.get("agent_id"),
+                data.get("role"),
+                data["message"],
+                data.get("scope"),
+                data.get("requested_action", "RE_EXECUTE"),
+                data.get("created_by", "analyst"),
+                data.get("created_at") or now,
+            ))
+            conn.commit()
+        data["instruction_id"] = inst_id
+        data["created_at"] = data.get("created_at") or now
+        return data
+
+    def list_for_task(self, task_id: str) -> List[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM analyst_instructions WHERE task_id = ? ORDER BY created_at ASC",
+                (task_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+
+class TaskAttemptRepository:
+    """Persistent storage for task attempt lineage."""
+
+    def __init__(self, db_service: DatabaseService):
+        self.db = db_service
+
+    def create_attempt(
+        self,
+        task_id: str,
+        agent_id: str,
+        model_id: Optional[str] = None,
+        role: str = "general_analysis",
+        instruction_id: Optional[str] = None,
+        parent_attempt_id: Optional[str] = None,
+        parent_run_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        approach: Optional[str] = None,
+        hypothesis: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        with self.db.get_connection() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM task_attempts WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()[0]
+            attempt_number = count + 1
+            attempt_id = f"{task_id}-attempt-{attempt_number}"
+            now = datetime.now(timezone.utc).isoformat()
+
+            conn.execute("""
+                INSERT INTO task_attempts (
+                    attempt_id, task_id, attempt_number, run_id, parent_run_id,
+                    parent_attempt_id, agent_id, model_id, role, instruction_id,
+                    status, approach, hypothesis, evidence_ids, tool_execution_ids,
+                    finding_ids, created_at, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                attempt_id, task_id, attempt_number, run_id, parent_run_id,
+                parent_attempt_id, agent_id, model_id, role, instruction_id,
+                "RUNNING", approach, hypothesis, json.dumps([]), json.dumps([]),
+                json.dumps([]), now, None
+            ))
+            # Update tasks current_attempt and retry_count
+            conn.execute("""
+                UPDATE tasks
+                SET current_attempt = ?, retry_count = ?, assigned_agent_id = ?
+                WHERE task_id = ?
+            """, (attempt_number, max(0, attempt_number - 1), agent_id, task_id))
+            conn.commit()
+
+        return {
+            "attempt_id": attempt_id,
+            "task_id": task_id,
+            "attempt_number": attempt_number,
+            "run_id": run_id,
+            "parent_run_id": parent_run_id,
+            "parent_attempt_id": parent_attempt_id,
+            "agent_id": agent_id,
+            "model_id": model_id,
+            "role": role,
+            "instruction_id": instruction_id,
+            "status": "RUNNING",
+            "approach": approach,
+            "hypothesis": hypothesis,
+            "evidence_ids": [],
+            "tool_execution_ids": [],
+            "finding_ids": [],
+            "created_at": now,
+        }
+
+    def list_for_task(self, task_id: str) -> List[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM task_attempts WHERE task_id = ? ORDER BY attempt_number ASC",
+                (task_id,),
+            ).fetchall()
+            items = []
+            for r in rows:
+                d = dict(r)
+                d["evidence_ids"] = json.loads(d["evidence_ids"]) if d.get("evidence_ids") else []
+                d["tool_execution_ids"] = json.loads(d["tool_execution_ids"]) if d.get("tool_execution_ids") else []
+                d["finding_ids"] = json.loads(d["finding_ids"]) if d.get("finding_ids") else []
+                items.append(d)
+            return items
+
+    def update_attempt(self, attempt_id: str, **kwargs) -> Optional[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            sets = []
+            vals = []
+            for k, v in kwargs.items():
+                if isinstance(v, (list, dict)):
+                    v = json.dumps(v)
+                sets.append(f"{k} = ?")
+                vals.append(v)
+            if not sets:
+                return None
+            vals.append(attempt_id)
+            conn.execute(f"UPDATE task_attempts SET {', '.join(sets)} WHERE attempt_id = ?", vals)
+            conn.commit()
+            row = conn.execute("SELECT * FROM task_attempts WHERE attempt_id = ?", (attempt_id,)).fetchone()
+            if row:
+                d = dict(row)
+                d["evidence_ids"] = json.loads(d["evidence_ids"]) if d.get("evidence_ids") else []
+                d["tool_execution_ids"] = json.loads(d["tool_execution_ids"]) if d.get("tool_execution_ids") else []
+                d["finding_ids"] = json.loads(d["finding_ids"]) if d.get("finding_ids") else []
+                return d
+            return None
+
+
+class ToolExecutionRepository:
+    """Persistent storage for tool executions and evidence links."""
+
+    def __init__(self, db_service: DatabaseService):
+        self.db = db_service
+
+    def record_execution(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        exec_id = data.get("execution_id") or f"exec-{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc).isoformat()
+        args = data.get("args") or []
+        if isinstance(args, list):
+            args_json = json.dumps(args)
+        else:
+            args_json = str(args)
+
+        ev_ids = data.get("evidence_ids") or []
+        if isinstance(ev_ids, list):
+            ev_json = json.dumps(ev_ids)
+        else:
+            ev_json = str(ev_ids)
+
+        with self.db.get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO tool_executions (
+                    execution_id, tool_name, category, agent_id, task_id, run_id,
+                    command, args, working_dir, status, exit_code, stdout_artifact,
+                    stderr_artifact, execution_result, evidence_ids, started_at, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                exec_id,
+                data["tool_name"],
+                data.get("category", "GENERAL"),
+                data.get("agent_id"),
+                data.get("task_id"),
+                data.get("run_id"),
+                data["command"],
+                args_json,
+                data.get("working_dir"),
+                data.get("status", "COMPLETED"),
+                data.get("exit_code", 0),
+                data.get("stdout_artifact"),
+                data.get("stderr_artifact"),
+                data.get("execution_result"),
+                ev_json,
+                data.get("started_at") or now,
+                data.get("completed_at") or now,
+            ))
+            conn.commit()
+
+        data["execution_id"] = exec_id
+        data["started_at"] = data.get("started_at") or now
+        data["completed_at"] = data.get("completed_at") or now
+        return data
+
+    def list_executions(
+        self,
+        tool_name: Optional[str] = None,
+        task_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            filters = []
+            params = []
+            if tool_name:
+                filters.append("tool_name = ?")
+                params.append(tool_name)
+            if task_id:
+                filters.append("task_id = ?")
+                params.append(task_id)
+            if agent_id:
+                filters.append("agent_id = ?")
+                params.append(agent_id)
+            where = ("WHERE " + " AND ".join(filters)) if filters else ""
+            rows = conn.execute(
+                f"SELECT * FROM tool_executions {where} ORDER BY started_at DESC LIMIT ?",
+                params + [limit],
+            ).fetchall()
+            items = []
+            for r in rows:
+                d = dict(r)
+                d["args"] = json.loads(d["args"]) if d.get("args") else []
+                d["evidence_ids"] = json.loads(d["evidence_ids"]) if d.get("evidence_ids") else []
+                items.append(d)
+            return items
+
+
+class AgentRoleRepository:
+    """Manages task-scoped and default agent roles."""
+
+    def __init__(self, db_service: DatabaseService):
+        self.db = db_service
+
+    def assign_role(
+        self,
+        agent_id: str,
+        role: str,
+        task_id: Optional[str] = None,
+        assigned_by: str = "analyst",
+        reason: Optional[str] = None
+    ) -> Dict[str, Any]:
+        asgn_id = f"asgn-{uuid.uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO agent_role_assignments (
+                    assignment_id, agent_id, task_id, role, assigned_by, reason, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (asgn_id, agent_id, task_id, role, assigned_by, reason, now))
+            # If not task-specific, or updating active agent role in agents table:
+            conn.execute("UPDATE agents SET role = ? WHERE agent_id = ?", (role, agent_id))
+            if task_id:
+                conn.execute("UPDATE tasks SET role = ? WHERE task_id = ?", (role, task_id))
+            conn.commit()
+
+        return {
+            "assignment_id": asgn_id,
+            "agent_id": agent_id,
+            "task_id": task_id,
+            "role": role,
+            "assigned_by": assigned_by,
+            "reason": reason,
+            "created_at": now,
+        }
+
+    def get_role(self, agent_id: str, task_id: Optional[str] = None) -> str:
+        with self.db.get_connection() as conn:
+            if task_id:
+                row = conn.execute(
+                    "SELECT role FROM agent_role_assignments WHERE agent_id = ? AND task_id = ? ORDER BY created_at DESC LIMIT 1",
+                    (agent_id, task_id)
+                ).fetchone()
+                if row and row[0]:
+                    return row[0]
+            row = conn.execute("SELECT role FROM agents WHERE agent_id = ?", (agent_id,)).fetchone()
+            return row[0] if (row and row[0]) else "general_analysis"
+
+
+class ReproducerVersionRepository:
+    """Tracks versions and execution lineage of PoC reproducers."""
+
+    def __init__(self, db_service: DatabaseService):
+        self.db = db_service
+
+    def save_version(
+        self,
+        finding_id: str,
+        reproducer_type: str,
+        language: str,
+        code_content: str,
+        location: Optional[str] = None,
+        status: str = "DRAFT",
+        sandbox_mode: str = "rootless-container",
+        execution_command: Optional[str] = None,
+        execution_result: Optional[str] = None,
+        observed_behavior: Optional[str] = None,
+        determinism: Optional[str] = None,
+        evidence_id: Optional[str] = None,
+        instruction_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        with self.db.get_connection() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM reproducer_versions WHERE finding_id = ?",
+                (finding_id,),
+            ).fetchone()[0]
+            version_number = count + 1
+            version_id = f"{finding_id}-poc-v{version_number}"
+            now = datetime.now(timezone.utc).isoformat()
+
+            conn.execute("""
+                INSERT INTO reproducer_versions (
+                    version_id, finding_id, version_number, reproducer_type, language,
+                    location, code_content, status, sandbox_mode, execution_command,
+                    execution_result, observed_behavior, determinism, evidence_id,
+                    instruction_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                version_id, finding_id, version_number, reproducer_type, language,
+                location or f"reproducers/{finding_id}_v{version_number}.{language.lower()}",
+                code_content, status, sandbox_mode, execution_command,
+                execution_result, observed_behavior, determinism, evidence_id,
+                instruction_id, now
+            ))
+            # Sync findings reproducer_state
+            conn.execute(
+                "UPDATE findings SET reproducer_state = ? WHERE finding_id = ?",
+                (status, finding_id)
+            )
+            conn.commit()
+
+        return {
+            "version_id": version_id,
+            "finding_id": finding_id,
+            "version_number": version_number,
+            "reproducer_type": reproducer_type,
+            "language": language,
+            "location": location,
+            "code_content": code_content,
+            "status": status,
+            "sandbox_mode": sandbox_mode,
+            "execution_command": execution_command,
+            "execution_result": execution_result,
+            "observed_behavior": observed_behavior,
+            "determinism": determinism,
+            "evidence_id": evidence_id,
+            "instruction_id": instruction_id,
+            "created_at": now,
+        }
+
+    def list_versions(self, finding_id: str) -> List[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM reproducer_versions WHERE finding_id = ? ORDER BY version_number ASC",
+                (finding_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_version(self, version_id: str, **kwargs) -> Optional[Dict[str, Any]]:
+        with self.db.get_connection() as conn:
+            sets = []
+            vals = []
+            for k, v in kwargs.items():
+                sets.append(f"{k} = ?")
+                vals.append(v)
+            if not sets:
+                return None
+            vals.append(version_id)
+            conn.execute(f"UPDATE reproducer_versions SET {', '.join(sets)} WHERE version_id = ?", vals)
+            conn.commit()
+            row = conn.execute("SELECT * FROM reproducer_versions WHERE version_id = ?", (version_id,)).fetchone()
+            return dict(row) if row else None
+
+

@@ -15,9 +15,15 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from api.models import TaskSummary, TaskDetail, RunSummary, PaginatedResponse, TaskCreateRequest
+from api.models import (
+    TaskSummary, TaskDetail, RunSummary, PaginatedResponse, TaskCreateRequest,
+    AnalystInstructionRequest, AnalystInstructionItem, TaskAttemptSummary, TaskReRunRequest
+)
 from api.session import require_session, SessionInfo
-from history import DatabaseService, TaskRepository, RunRepository
+from history import (
+    DatabaseService, TaskRepository, RunRepository,
+    AnalystInstructionRepository, TaskAttemptRepository, ToolExecutionRepository
+)
 from history.database import get_db_path
 from history.phase9_repositories import TargetRepositoryRepository
 from api.realtime import event_manager
@@ -289,3 +295,251 @@ async def create_task(
         retry_count=0,
         created_at=now,
     )
+
+
+@router.post("/{task_id}/instructions", response_model=AnalystInstructionItem)
+async def add_task_instruction(
+    task_id: str,
+    request: AnalystInstructionRequest,
+    session: SessionInfo = Depends(require_session),
+):
+    """
+    Submits an analyst instruction for a task.
+    Creates an immutable AnalystInstruction record, spawns a new TaskAttempt (Attempt 2+),
+    preserves previous attempt lineage, and broadcasts AGENT_INSTRUCTION_ADDED and TASK_ATTEMPT_STARTED.
+    """
+    db = _get_db()
+    with db.get_connection() as conn:
+        task_row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+    if not task_row:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+
+    t_dict = dict(task_row)
+    agent_id = request.agent_id or t_dict.get("assigned_agent_id") or "agent-agy-01"
+    role = request.role or t_dict.get("role") or "RTL Security Analyst"
+
+    inst_repo = AnalystInstructionRepository(db)
+    attempt_repo = TaskAttemptRepository(db)
+
+    # 1. Save immutable instruction
+    inst = inst_repo.save({
+        "task_id": task_id,
+        "run_id": t_dict.get("workflow_id"),
+        "agent_id": agent_id,
+        "role": role,
+        "message": request.message,
+        "scope": request.scope or t_dict.get("scope"),
+        "requested_action": request.requested_action or "RE_EXECUTE",
+        "created_by": session.role or "analyst",
+    })
+
+    # 2. Spawn new TaskAttempt preserving previous attempt
+    existing_attempts = attempt_repo.list_for_task(task_id)
+    parent_attempt = existing_attempts[-1] if existing_attempts else None
+    parent_attempt_id = parent_attempt["attempt_id"] if parent_attempt else None
+
+    attempt = attempt_repo.create_attempt(
+        task_id=task_id,
+        agent_id=agent_id,
+        role=role,
+        instruction_id=inst["instruction_id"],
+        parent_attempt_id=parent_attempt_id,
+        run_id=t_dict.get("workflow_id"),
+        approach=f"Re-execution based on analyst instruction: {request.message[:80]}",
+    )
+
+    # 3. Broadcast events
+    await event_manager.broadcast(
+        event_type="AGENT_INSTRUCTION_ADDED",
+        entity_type="task",
+        entity_id=task_id,
+        payload={
+            "instruction_id": inst["instruction_id"],
+            "task_id": task_id,
+            "agent_id": agent_id,
+            "message": request.message,
+            "attempt_number": attempt["attempt_number"],
+        }
+    )
+
+    await event_manager.broadcast(
+        event_type="TASK_ATTEMPT_STARTED",
+        entity_type="task",
+        entity_id=task_id,
+        payload={
+            "attempt_id": attempt["attempt_id"],
+            "task_id": task_id,
+            "attempt_number": attempt["attempt_number"],
+            "agent_id": agent_id,
+            "role": role,
+            "instruction_id": inst["instruction_id"],
+        }
+    )
+
+    return AnalystInstructionItem(
+        instruction_id=inst["instruction_id"],
+        run_id=inst.get("run_id"),
+        task_id=task_id,
+        attempt_id=attempt["attempt_number"],
+        agent_id=agent_id,
+        role=role,
+        message=inst["message"],
+        scope=inst.get("scope"),
+        requested_action=inst.get("requested_action", "RE_EXECUTE"),
+        created_by=inst.get("created_by", "analyst"),
+        created_at=_dt(inst.get("created_at")),
+    )
+
+
+@router.get("/{task_id}/attempts", response_model=List[TaskAttemptSummary])
+def list_task_attempts(task_id: str, session: SessionInfo = Depends(require_session)):
+    """Returns chronological attempt lineage for a task (Attempt 1, Attempt 2, etc.)."""
+    db = _get_db()
+    attempt_repo = TaskAttemptRepository(db)
+    attempts = attempt_repo.list_for_task(task_id)
+
+    # If no attempts recorded yet but task exists, seed initial Attempt 1
+    if not attempts:
+        with db.get_connection() as conn:
+            row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+        if row:
+            r = dict(row)
+            att = attempt_repo.create_attempt(
+                task_id=task_id,
+                agent_id=r.get("assigned_agent_id") or "agent-agy-01",
+                role=r.get("role") or "general_analysis",
+                approach="Initial exploration and hypothesis generation",
+            )
+            attempts = [att]
+
+    items = []
+    for a in attempts:
+        items.append(TaskAttemptSummary(
+            attempt_id=a["attempt_id"],
+            task_id=a["task_id"],
+            attempt_number=a["attempt_number"],
+            run_id=a.get("run_id"),
+            parent_run_id=a.get("parent_run_id"),
+            parent_attempt_id=a.get("parent_attempt_id"),
+            agent_id=a["agent_id"],
+            model_id=a.get("model_id"),
+            role=a.get("role", "general_analysis"),
+            instruction_id=a.get("instruction_id"),
+            status=a.get("status", "COMPLETED"),
+            approach=a.get("approach"),
+            hypothesis=a.get("hypothesis"),
+            evidence_ids=a.get("evidence_ids") or [],
+            tool_execution_ids=a.get("tool_execution_ids") or [],
+            finding_ids=a.get("finding_ids") or [],
+            created_at=_dt(a.get("created_at")),
+            completed_at=_dt(a.get("completed_at")),
+        ))
+    return items
+
+
+@router.get("/{task_id}/instructions", response_model=List[AnalystInstructionItem])
+def list_task_instructions(task_id: str, session: SessionInfo = Depends(require_session)):
+    """Returns all analyst instructions submitted for the given task."""
+    db = _get_db()
+    inst_repo = AnalystInstructionRepository(db)
+    items = inst_repo.list_for_task(task_id)
+    return [
+        AnalystInstructionItem(
+            instruction_id=i["instruction_id"],
+            run_id=i.get("run_id"),
+            task_id=i["task_id"],
+            attempt_id=i.get("attempt_id", 1),
+            agent_id=i.get("agent_id"),
+            role=i.get("role"),
+            message=i["message"],
+            scope=i.get("scope"),
+            requested_action=i.get("requested_action", "RE_EXECUTE"),
+            created_by=i.get("created_by", "analyst"),
+            created_at=_dt(i.get("created_at")),
+        )
+        for i in items
+    ]
+
+
+@router.post("/{task_id}/re-run", response_model=TaskAttemptSummary)
+async def rerun_task_with_options(
+    task_id: str,
+    request: TaskReRunRequest,
+    session: SessionInfo = Depends(require_session),
+):
+    """
+    Reruns a task creating a new attempt while preserving previous attempts and lineage.
+    Allows configuring instruction, scope, agent, role, and model.
+    """
+    db = _get_db()
+    with db.get_connection() as conn:
+        task_row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+    if not task_row:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+
+    t_dict = dict(task_row)
+    agent_id = request.agent_id or t_dict.get("assigned_agent_id") or "agent-agy-01"
+    role = request.role or t_dict.get("role") or "general_analysis"
+    model_id = request.model_id or t_dict.get("model_id")
+
+    inst_id = None
+    if request.instruction:
+        inst_repo = AnalystInstructionRepository(db)
+        inst = inst_repo.save({
+            "task_id": task_id,
+            "run_id": t_dict.get("workflow_id"),
+            "agent_id": agent_id,
+            "role": role,
+            "message": request.instruction,
+            "scope": request.scope,
+            "requested_action": "RE_EXECUTE",
+            "created_by": session.role or "analyst",
+        })
+        inst_id = inst["instruction_id"]
+
+    attempt_repo = TaskAttemptRepository(db)
+    existing_attempts = attempt_repo.list_for_task(task_id)
+    parent_attempt = existing_attempts[-1] if existing_attempts else None
+    parent_attempt_id = parent_attempt["attempt_id"] if parent_attempt else None
+
+    attempt = attempt_repo.create_attempt(
+        task_id=task_id,
+        agent_id=agent_id,
+        model_id=model_id,
+        role=role,
+        instruction_id=inst_id,
+        parent_attempt_id=parent_attempt_id,
+        run_id=t_dict.get("workflow_id"),
+        approach=f"Re-run with options: {request.instruction or 'Analyst re-run'}",
+    )
+
+    await event_manager.broadcast(
+        event_type="TASK_ATTEMPT_STARTED",
+        entity_type="task",
+        entity_id=task_id,
+        payload={
+            "attempt_id": attempt["attempt_id"],
+            "task_id": task_id,
+            "attempt_number": attempt["attempt_number"],
+            "agent_id": agent_id,
+            "role": role,
+            "instruction_id": inst_id,
+        }
+    )
+
+    return TaskAttemptSummary(
+        attempt_id=attempt["attempt_id"],
+        task_id=task_id,
+        attempt_number=attempt["attempt_number"],
+        run_id=attempt.get("run_id"),
+        parent_run_id=attempt.get("parent_run_id"),
+        parent_attempt_id=parent_attempt_id,
+        agent_id=agent_id,
+        model_id=model_id,
+        role=role,
+        instruction_id=inst_id,
+        status="RUNNING",
+        approach=attempt.get("approach"),
+        created_at=_dt(attempt.get("created_at")),
+    )
+

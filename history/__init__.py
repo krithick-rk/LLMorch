@@ -13,7 +13,14 @@ from .repositories import (
     ReproSpecRepository,
     ReproducerRepository,
     ValidationResultRepository,
+)
+from .phase9_repositories import (
     TargetRepositoryRepository,
+    AnalystInstructionRepository,
+    TaskAttemptRepository,
+    ToolExecutionRepository,
+    AgentRoleRepository,
+    ReproducerVersionRepository,
 )
 
 __all__ = [
@@ -28,5 +35,10 @@ __all__ = [
     "ReproducerRepository",
     "ValidationResultRepository",
     "TargetRepositoryRepository",
+    "AnalystInstructionRepository",
+    "TaskAttemptRepository",
+    "ToolExecutionRepository",
+    "AgentRoleRepository",
+    "ReproducerVersionRepository",
 ]
 

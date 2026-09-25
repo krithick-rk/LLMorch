@@ -13,6 +13,20 @@ from schemas.errors import AgentUnavailableError, LLMorchError, ErrorCode
 from registry.model_registry import ModelRegistry
 
 
+AVAILABLE_ROLES = [
+    "Repository Analyst",
+    "RTL Security Analyst",
+    "C/C++ Security Analyst",
+    "Rust Security Analyst",
+    "Static Analysis Agent",
+    "Dynamic Analysis Agent",
+    "Reproducer Engineer",
+    "Code Review Agent",
+    "Critic",
+    "Research Assistant",
+]
+
+
 class AgentRegistry:
     """
     Central Agent Registry for elastic agent management.
@@ -31,8 +45,19 @@ class AgentRegistry:
         self._agents: Dict[str, Agent] = {}
         self._switch_counts: Dict[str, int] = {}
         self._failover_counts: Dict[str, int] = {}
+        self._available_roles = list(AVAILABLE_ROLES)
         if populate_defaults:
             self.load_configured_agents()
+
+    def list_available_roles(self) -> List[str]:
+        return list(self._available_roles)
+
+    def set_agent_role(self, agent_id: str, role: str) -> Agent:
+        agent = self.get_agent(agent_id)
+        if not agent:
+            raise AgentUnavailableError(f"Agent '{agent_id}' not found in registry")
+        agent.role = role
+        return agent
 
     def load_configured_agents(self) -> None:
         """Discovers and registers agents configured in agents.yaml."""

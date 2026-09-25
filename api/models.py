@@ -720,3 +720,199 @@ class SettingsUpdateRequest(BaseModel):
     scope: Optional[Dict[str, Any]] = None
     execution: Optional[Dict[str, Any]] = None
     session_token: Optional[str] = None
+
+
+# ─── Phase 9.3: Roles, Instructions, Attempts, Tools & Workflow ───────────────
+
+class AgentRoleChangeRequest(BaseModel):
+    agent_id: str
+    role: str
+    task_id: Optional[str] = None
+    reason: Optional[str] = "Analyst role adjustment"
+
+
+class AgentRoleResponse(BaseModel):
+    agent_id: str
+    role: str
+    task_id: Optional[str] = None
+    available_roles: List[str] = Field(default_factory=list)
+    message: str
+
+
+class AnalystInstructionRequest(BaseModel):
+    message: str
+    task_id: str
+    agent_id: Optional[str] = None
+    role: Optional[str] = None
+    scope: Optional[str] = None
+    requested_action: Optional[str] = "RE_EXECUTE"
+
+
+class AnalystInstructionItem(BaseModel):
+    instruction_id: str
+    run_id: Optional[str] = None
+    task_id: str
+    attempt_id: int = 1
+    agent_id: Optional[str] = None
+    role: Optional[str] = None
+    message: str
+    scope: Optional[str] = None
+    requested_action: str = "RE_EXECUTE"
+    created_by: str = "analyst"
+    created_at: Optional[datetime] = None
+
+
+class TaskAttemptSummary(BaseModel):
+    attempt_id: str
+    task_id: str
+    attempt_number: int = 1
+    run_id: Optional[str] = None
+    parent_run_id: Optional[str] = None
+    parent_attempt_id: Optional[str] = None
+    agent_id: str
+    model_id: Optional[str] = None
+    role: str = "general_analysis"
+    instruction_id: Optional[str] = None
+    status: str = "PENDING"
+    approach: Optional[str] = None
+    hypothesis: Optional[str] = None
+    evidence_ids: List[str] = Field(default_factory=list)
+    tool_execution_ids: List[str] = Field(default_factory=list)
+    finding_ids: List[str] = Field(default_factory=list)
+    created_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class TaskReRunRequest(BaseModel):
+    instruction: Optional[str] = None
+    scope: Optional[str] = None
+    agent_id: Optional[str] = None
+    role: Optional[str] = None
+    model_id: Optional[str] = None
+
+
+class ToolSummary(BaseModel):
+    tool_name: str
+    display_name: str
+    category: str
+    version: str
+    description: str
+    capabilities: List[str] = Field(default_factory=list)
+    status: str = "AVAILABLE"  # AVAILABLE, IN_USE, COMPLETED, FAILED, BLOCKED, DISABLED
+    assigned_agent: Optional[str] = None
+    current_task: Optional[str] = None
+    health: str = "HEALTHY"
+    last_execution: Optional[datetime] = None
+    evidence_ids: List[str] = Field(default_factory=list)
+
+
+class ToolExecutionRecord(BaseModel):
+    execution_id: str
+    tool_name: str
+    category: str
+    agent_id: Optional[str] = None
+    task_id: Optional[str] = None
+    run_id: Optional[str] = None
+    command: str
+    args: List[str] = Field(default_factory=list)
+    working_dir: Optional[str] = None
+    status: str = "COMPLETED"
+    exit_code: int = 0
+    stdout_artifact: Optional[str] = None
+    stderr_artifact: Optional[str] = None
+    execution_result: Optional[str] = None
+    evidence_ids: List[str] = Field(default_factory=list)
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+class AnalysisStartRequest(BaseModel):
+    repository_path: Optional[str] = None
+    objective: Optional[str] = "Find security vulnerabilities and verify hardware/software root of trust"
+    analysis_policy: Optional[str] = "BALANCED"
+    selected_agents: Optional[List[str]] = None
+    selected_models: Optional[List[str]] = None
+    token_budget: Optional[int] = None
+    analysis_units: Optional[List[str]] = None
+
+
+class AnalysisStartResponse(BaseModel):
+    run_id: str
+    repository_path: str
+    repository_name: str
+    repository_family: str
+    status: str
+    created_tasks_count: int
+    assigned_agents: List[str]
+    token_budget: int
+    message: str
+
+
+class AnalysisPreValidateResponse(BaseModel):
+    valid: bool
+    repository_selected: bool
+    repository_valid: bool
+    repository_path: Optional[str] = None
+    agent_capacity: int
+    executable_agents: List[str]
+    tools_available: int
+    execution_policy_valid: bool
+    token_budget_sufficient: bool
+    recommended_budget: int
+    errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class PoCDetail(BaseModel):
+    version_id: str
+    finding_id: str
+    version_number: int = 1
+    reproducer_type: str = "REGRESSION_TEST"
+    language: str = "c"
+    location: Optional[str] = None
+    code_content: str
+    status: str = "DRAFT"  # DRAFT, EXECUTED, REPRODUCED, FAILED, INCONCLUSIVE, VALIDATED
+    sandbox_mode: str = "rootless-container"
+    execution_command: Optional[str] = None
+    execution_result: Optional[str] = None
+    observed_behavior: Optional[str] = None
+    determinism: Optional[str] = None
+    evidence_id: Optional[str] = None
+    validator_evidence_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class PoCExecutionRequest(BaseModel):
+    sandbox_mode: Optional[str] = "rootless-container"
+    timeout_seconds: Optional[int] = 30
+
+
+class PoCGenerateRequest(BaseModel):
+    instruction: Optional[str] = None
+    reproducer_type: Optional[str] = None
+    language: Optional[str] = None
+
+
+class FindingDossier(BaseModel):
+    finding_id: str
+    task_id: Optional[str] = None
+    hypothesis: Optional[str] = None
+    state: str = "OPEN"
+    severity: Optional[str] = None
+    affected_repository: Optional[str] = None
+    affected_files: List[str] = Field(default_factory=list)
+    affected_analysis_unit: Optional[str] = None
+    agent_id: Optional[str] = None
+    role: Optional[str] = None
+    model_id: Optional[str] = None
+    supporting_evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    contradicting_evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    validation_state: str = "UNVALIDATED"
+    reproducer_state: str = "NONE"
+    reproducers: List[PoCDetail] = Field(default_factory=list)
+    attempts: List[TaskAttemptSummary] = Field(default_factory=list)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    confidence: Optional[float] = None
+    notes: Optional[str] = None
+

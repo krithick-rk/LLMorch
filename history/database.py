@@ -976,8 +976,123 @@ class DatabaseService:
             );
             """)
 
+            # Phase 9.3 — Agent Workflow, Analyst Instructions, Lineage, and Tool Execution
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS analyst_instructions (
+                instruction_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                task_id TEXT NOT NULL,
+                attempt_id INTEGER NOT NULL DEFAULT 1,
+                agent_id TEXT,
+                role TEXT,
+                message TEXT NOT NULL,
+                scope TEXT,
+                requested_action TEXT,
+                created_by TEXT NOT NULL DEFAULT 'analyst',
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS task_attempts (
+                attempt_id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                attempt_number INTEGER NOT NULL DEFAULT 1,
+                run_id TEXT,
+                parent_run_id TEXT,
+                parent_attempt_id TEXT,
+                agent_id TEXT NOT NULL,
+                model_id TEXT,
+                role TEXT NOT NULL DEFAULT 'general_analysis',
+                instruction_id TEXT,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                approach TEXT,
+                hypothesis TEXT,
+                evidence_ids TEXT DEFAULT '[]',
+                tool_execution_ids TEXT DEFAULT '[]',
+                finding_ids TEXT DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tool_executions (
+                execution_id TEXT PRIMARY KEY,
+                tool_name TEXT NOT NULL,
+                category TEXT NOT NULL,
+                agent_id TEXT,
+                task_id TEXT,
+                run_id TEXT,
+                command TEXT NOT NULL,
+                args TEXT DEFAULT '[]',
+                working_dir TEXT,
+                status TEXT NOT NULL DEFAULT 'COMPLETED',
+                exit_code INTEGER DEFAULT 0,
+                stdout_artifact TEXT,
+                stderr_artifact TEXT,
+                execution_result TEXT,
+                evidence_ids TEXT DEFAULT '[]',
+                started_at TEXT NOT NULL,
+                completed_at TEXT
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS agent_role_assignments (
+                assignment_id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                task_id TEXT,
+                role TEXT NOT NULL,
+                assigned_by TEXT NOT NULL DEFAULT 'analyst',
+                reason TEXT,
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reproducer_versions (
+                version_id TEXT PRIMARY KEY,
+                finding_id TEXT NOT NULL,
+                version_number INTEGER NOT NULL DEFAULT 1,
+                reproducer_type TEXT NOT NULL,
+                language TEXT NOT NULL,
+                location TEXT,
+                code_content TEXT,
+                status TEXT NOT NULL DEFAULT 'DRAFT',
+                sandbox_mode TEXT,
+                execution_command TEXT,
+                execution_result TEXT,
+                observed_behavior TEXT,
+                determinism TEXT,
+                evidence_id TEXT,
+                instruction_id TEXT,
+                created_at TEXT NOT NULL
+            );
+            """)
+
+            # Safe Phase 9.3 migrations
+            _p93_migrations = [
+                "ALTER TABLE findings ADD COLUMN affected_analysis_unit TEXT",
+                "ALTER TABLE findings ADD COLUMN agent_id TEXT",
+                "ALTER TABLE findings ADD COLUMN role TEXT",
+                "ALTER TABLE findings ADD COLUMN model_id TEXT",
+                "ALTER TABLE findings ADD COLUMN supporting_evidence TEXT DEFAULT '[]'",
+                "ALTER TABLE findings ADD COLUMN contradicting_evidence TEXT DEFAULT '[]'",
+                "ALTER TABLE findings ADD COLUMN validation_state TEXT DEFAULT 'UNVALIDATED'",
+                "ALTER TABLE findings ADD COLUMN reproducer_state TEXT DEFAULT 'NONE'",
+                "ALTER TABLE tasks ADD COLUMN scope TEXT",
+                "ALTER TABLE tasks ADD COLUMN role TEXT",
+                "ALTER TABLE tasks ADD COLUMN current_attempt INTEGER DEFAULT 1",
+            ]
+            for sql in _p93_migrations:
+                try:
+                    cursor.execute(sql)
+                except Exception:
+                    pass
+
             conn.commit()
-            logger.info("Database schema initialized successfully (Phase 0-9.2 tables verified).")
+            logger.info("Database schema initialized successfully (Phase 0-9.3 tables verified).")
 
 
 def get_db_path() -> str:

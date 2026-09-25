@@ -93,6 +93,30 @@ export const api = {
   settings: () => req('/settings'),
   updateSettings: (body) => req('/settings', { method: 'PUT', body: JSON.stringify(body) }),
   config: () => req('/config'),
+
+  // Phase 9.3 — Agent Workflow, Analyst Instructions, PoC Lifecycle
+  taskAttempts: (taskId) => req(`/tasks/${taskId}/attempts`),
+  toolExecutions: (params = {}) => req('/tools/executions?' + new URLSearchParams(params)),
+  // Submit instruction: POST /api/tasks/{task_id}/instructions
+  submitAnalystInstruction: (body) =>
+    req(`/tasks/${body.task_id}/instructions`, { method: 'POST', body: JSON.stringify({ message: body.instruction }) }),
+  agentRoles: () => req('/agents/roles'),
+  assignAgentRole: (body) => req('/agents/roles/assign', { method: 'POST', body: JSON.stringify(body) }),
+
+  // PoC / Reproducer lifecycle — routes are /{finding_id}/poc/{action}
+  generatePoC: (body) => req(`/findings/${body.finding_id}/poc/generate`, { method: 'POST', body: JSON.stringify(body) }),
+  executePoC:  (body) => req(`/findings/${body.finding_id}/poc/${body.version_id || body.reproducer_id}/execute`, { method: 'POST', body: JSON.stringify(body) }),
+  validatePoC: (body) => req(`/findings/${body.finding_id}/poc/${body.version_id || body.reproducer_id}/validate`, { method: 'POST', body: JSON.stringify(body) }),
+  findingDossier: (id) => req(`/findings/${id}/dossier`),
+
+  // Phase 9.3 — Analysis Lifecycle
+  preValidateAnalysis: () => req('/analysis/pre-validate', { method: 'POST' }),
+  startAnalysis: (body) => req('/analysis/start', { method: 'POST', body: JSON.stringify(body) }),
+
+  // Tool Registry
+  tools: (params = {}) => req('/tools?' + new URLSearchParams(params)),
+  toolDetail: (name) => req(`/tools/${name}`),
+  toolExecHistory: (name, params = {}) => req(`/tools/${name}/executions?` + new URLSearchParams(params)),
 };
 
 export default api;
