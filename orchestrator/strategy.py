@@ -99,9 +99,18 @@ class StrategyEngine:
                 excluded.append(f"{agent.agent_id} (Missing caps: {missing_caps})")
                 continue
 
+            # Hard Constraint 3: Execution Policy (registered != executable)
+            from scheduler.execution_policy import get_execution_policy
+            exec_policy = get_execution_policy()
+            if not exec_policy.is_agent_executable(agent.agent_id, adapter=getattr(agent, "_adapter", None)):
+                reason = exec_policy.get_agent_disabled_reason(agent.agent_id) or "Execution disabled by policy"
+                excluded.append(f"{agent.agent_id} ({reason})")
+                continue
+
             eligible.append(agent)
 
         return eligible, candidate_ids, excluded
+
 
     def evaluate(
         self,

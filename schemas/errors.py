@@ -60,3 +60,13 @@ class InvalidStateTransitionError(LLMorchError):
 class PolicyBlockedError(LLMorchError):
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
         super().__init__(message, code=ErrorCode.POLICY_BLOCKED, details=details)
+
+
+class AgentExecutionDisabled(LLMorchError):
+    """Raised when an agent is registered but execution is prohibited by policy."""
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, code=ErrorCode.POLICY_BLOCKED, details=details)
+
+
+AgentExecutionDisabledError = AgentExecutionDisabled
+

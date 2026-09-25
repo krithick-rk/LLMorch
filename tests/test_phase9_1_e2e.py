@@ -64,6 +64,19 @@ def shared_env():
         }
 
 
+@pytest.fixture(autouse=True)
+def enforce_test_db(shared_env, monkeypatch):
+    """Ensures all API routers use the isolated shared test database regardless of suite collection order."""
+    db = shared_env["db"]
+    monkeypatch.setenv("LLMORCH_DB_PATH", _TEST_DB)
+    monkeypatch.setattr("api.routers.tokens._get_db", lambda: db)
+    monkeypatch.setattr("api.routers.controls._get_db", lambda: db)
+    monkeypatch.setattr("api.routers.agents._get_db", lambda: db)
+    monkeypatch.setattr("api.routers.settings._get_db", lambda: db)
+    monkeypatch.setattr("api.routers.tasks._get_db", lambda: db)
+
+
+
 def test_e2e_repository_estimation_and_budget(shared_env):
     """E2E Step 1: Repository estimation and budget setup."""
     repo_dir = shared_env["repo_dir"]

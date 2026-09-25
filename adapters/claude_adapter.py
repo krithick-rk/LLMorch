@@ -23,6 +23,7 @@ from schemas.artifact import Artifact, ArtifactType, RetentionClass
 from schemas.health import AgentHealthState
 from schemas.capability import AgentCapability
 from schemas.task_result import TaskResult
+from schemas.errors import AgentExecutionDisabled
 
 
 class ClaudeAdapter(BaseAgentAdapter):
@@ -30,7 +31,8 @@ class ClaudeAdapter(BaseAgentAdapter):
     Provider-neutral adapter implementation for real Claude Code CLI subprocess execution.
     """
 
-    def __init__(self, cli_executable: Optional[str] = None, config_override: Optional[Dict[str, Any]] = None):
+    def __init__(self, cli_executable: Optional[str] = None, config_override: Optional[Dict[str, Any]] = None, agent_id: str = "agent-claude-01"):
+        self.agent_id = agent_id
         self.cli_executable = cli_executable or self._detect_cli_executable()
         self.config = config_override or {"model_alias": "runtime-resolved", "timeout": 3600}
         self.active_processes: Dict[str, subprocess.Popen] = {}
@@ -64,6 +66,15 @@ class ClaudeAdapter(BaseAgentAdapter):
         Launches real Claude Code process synchronously with process-group supervision.
         Returns execution outcome dictionary (exit_code, stdout, stderr, process_id).
         """
+        from scheduler.execution_policy import get_execution_policy
+        policy = get_execution_policy()
+        if not policy.allow_real_claude_execution:
+            raise AgentExecutionDisabled(
+                f"Execution of agent '{self.agent_id}' is disabled by policy (allow_real_claude_execution=False). "
+                "Agent remains registered and supported in architecture, but real execution is prohibited.",
+                details={"agent_id": self.agent_id, "reason": policy.get_agent_disabled_reason(self.agent_id)}
+            )
+
         run = self.start(task)
         # Invocation args for non-interactive execution: claude --print / claude -p <prompt>
         cmd = [self.cli_executable, "-p", context_prompt]
@@ -219,3 +230,44 @@ class ClaudeAdapter(BaseAgentAdapter):
             "mount_point": "/home/hackdac/Desktop/intern/LLMorch",
             "read_only": False,
         }
+
+
+class ContractClaudeAdapter(ClaudeAdapter):
+    """
+    Deterministic Contract Adapter for Claude Code.
+    Preserves all Claude architectural properties:
+    - Provider: anthropic
+    - Capabilities: security_review, rtl_analysis, etc.
+    - Role: independent_investigation
+    - Result normalization: identical format
+    Does NOT spawn real claude CLI. Safe for integration tests and multi-agent capacity testing.
+    """
+    is_mock: bool = True
+
+    def __init__(self, agent_id: str = "agent-claude-01", *args, **kwargs):
+        super().__init__(agent_id=agent_id, *args, **kwargs)
+        self.is_mock = True
+
+
+    def execute_task_sync(self, task: Task, workspace_dir: str, context_prompt: str) -> Dict[str, Any]:
+        run = self.start(task)
+        run.status = RunStatus.SUCCEEDED
+        run.exit_status = 0
+        stdout = json.dumps({
+            "hypothesis": f"Contract Claude hypothesis for {task.objective}",
+            "affected_locations": [{"file_path": "schemas/agent.py", "start_line": 1, "end_line": 20}],
+            "confidence": 0.88,
+        })
+        run.end_time = datetime.now(timezone.utc)
+        return {
+            "run_id": run.run_id,
+            "exit_code": 0,
+            "stdout": stdout,
+            "stderr": "",
+            "process_id": 7777,
+            "run": run,
+        }
+
+
+MockClaudeAdapter = ContractClaudeAdapter
+

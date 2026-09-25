@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from adapters.base import BaseAgentAdapter
 from adapters.agy_adapter import AGYAdapter
-from adapters.claude_adapter import ClaudeAdapter
+from adapters.claude_adapter import ClaudeAdapter, ContractClaudeAdapter
 from adapters.codex_adapter import CodexAdapter
 from registry.agent_registry import AgentRegistry
 from schemas.agent import Agent, AgentInterface
@@ -47,11 +47,17 @@ def test_insufficient_agent_capacity_reporting():
 
 def test_workspace_and_context_isolation_in_parallel():
     db = DatabaseService(":memory:")
+    custom = {
+        "agent-agy-01": AGYAdapter(),
+        "agent-claude-01": ContractClaudeAdapter(),
+        "agent-codex-01": CodexAdapter(),
+    }
     wf = InvestigationWorkflow(
         repo_path=str(PROJECT_ROOT),
         target_component="schemas",
         preferred_agent_ids=["agent-agy-01", "agent-claude-01"],
-        db_service=db
+        db_service=db,
+        custom_adapters=custom,
     )
     res = wf.run()
     assert res["task_status"] == "READY_FOR_REVIEW"
@@ -81,11 +87,17 @@ def test_correlator_classifications():
 
 def test_end_to_end_parallel_pair_execution_agy_claude():
     db = DatabaseService(":memory:")
+    custom = {
+        "agent-agy-01": AGYAdapter(),
+        "agent-claude-01": ContractClaudeAdapter(),
+        "agent-codex-01": CodexAdapter(),
+    }
     wf = InvestigationWorkflow(
         repo_path=str(PROJECT_ROOT),
         target_component="schemas",
         preferred_agent_ids=["agent-agy-01", "agent-claude-01"],
-        db_service=db
+        db_service=db,
+        custom_adapters=custom,
     )
     res = wf.run()
     assert res["task_status"] == "READY_FOR_REVIEW"
@@ -111,11 +123,17 @@ def test_end_to_end_parallel_pair_execution_agy_codex():
 
 def test_end_to_end_parallel_pair_execution_claude_codex():
     db = DatabaseService(":memory:")
+    custom = {
+        "agent-agy-01": AGYAdapter(),
+        "agent-claude-01": ContractClaudeAdapter(),
+        "agent-codex-01": CodexAdapter(),
+    }
     wf = InvestigationWorkflow(
         repo_path=str(PROJECT_ROOT),
         target_component="schemas",
         preferred_agent_ids=["agent-claude-01", "agent-codex-01"],
-        db_service=db
+        db_service=db,
+        custom_adapters=custom,
     )
     res = wf.run()
     assert res["task_status"] == "READY_FOR_REVIEW"

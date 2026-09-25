@@ -535,3 +535,38 @@ def test_openapi_schema_accessible():
     schema = resp.json()
     assert "openapi" in schema
     assert "paths" in schema
+
+
+# ─── Static UI & Console Routes ───────────────────────────────────────────────
+
+def test_root_serves_console_ui():
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+    assert "LLMorch" in resp.text
+
+
+def test_favicon_served():
+    resp = client.get("/favicon.ico")
+    assert resp.status_code == 200
+    assert len(resp.content) > 0
+
+
+def test_vite_svg_served():
+    resp = client.get("/vite.svg")
+    assert resp.status_code == 200
+
+
+def test_spa_client_route_fallback():
+    # Any client-side SPA subpath (non-api) should serve index.html
+    resp = client.get("/timeline")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+    assert "LLMorch" in resp.text
+
+
+def test_nonexistent_api_route_returns_404():
+    # API paths that don't exist must still 404, not fallback to index.html
+    resp = client.get("/api/this_endpoint_does_not_exist")
+    assert resp.status_code == 404
+

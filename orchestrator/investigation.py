@@ -141,6 +141,7 @@ class InvestigationWorkflow:
                 availability=(adapter.health() == AgentHealthState.AVAILABLE),
                 adapter_version=adapter.version()
             )
+            agent._adapter = adapter
             self.registry.register_agent(agent)
             self.agent_repo.save(agent)
 

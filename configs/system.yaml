@@ -11,9 +11,20 @@ execution:
   default_agent: agent-agy-01
   enabled_agents:
     - agent-agy-01
-    - agent-claude-01
     - agent-codex-01
     - agent-fourth-01
+
+execution_policy:
+  enabled_agents:
+    - agent-agy-01
+    - agent-codex-01
+    - agent-fourth-01
+  disabled_agents:
+    - agent-claude-01
+  allow_real_claude_execution: false
+  allow_real_agy_execution: true
+  allow_real_codex_execution: true
+
 
 scheduler:
   max_concurrent_agents: 4

@@ -519,9 +519,15 @@ function AgentPanelPage({ refreshSignal }) {
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
                     <StatusBadge status={a.health} />
-                    <span className="badge badge-queued" style={{ fontSize: '10px' }}>
-                      {a.status || 'ACTIVE'}
-                    </span>
+                    {a.executable === false ? (
+                      <span className="badge badge-paused" style={{ fontSize: '10px' }} title={a.execution_disabled_reason || 'Execution Disabled'}>
+                        EXECUTION DISABLED
+                      </span>
+                    ) : (
+                      <span className="badge badge-running" style={{ fontSize: '10px' }}>
+                        EXECUTABLE
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -563,8 +569,10 @@ function AgentPanelPage({ refreshSignal }) {
                 {/* Action Buttons */}
                 <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
                   <button
-                    className="btn btn-primary btn-sm"
-                    style={{ flex: 1 }}
+                    className={`btn ${a.executable === false ? 'btn-secondary' : 'btn-primary'} btn-sm`}
+                    style={{ flex: 1, opacity: a.executable === false ? 0.6 : 1 }}
+                    disabled={a.executable === false}
+                    title={a.executable === false ? (a.execution_disabled_reason || 'Execution disabled by policy') : 'Switch assigned agent'}
                     onClick={() => handleOpenSwitch(a)}
                   >
                     ⇄ Switch

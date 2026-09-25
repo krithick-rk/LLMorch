@@ -19,7 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from adapters.base import BaseAgentAdapter
 from adapters.agy_adapter import AGYAdapter
-from adapters.claude_adapter import ClaudeAdapter
+from adapters.claude_adapter import ClaudeAdapter, ContractClaudeAdapter
 from adapters.codex_adapter import CodexAdapter
 
 from schemas.task import Task, TaskStatus, RiskLevel
@@ -167,11 +167,11 @@ def test_elastic_case_a_single_agent():
 
 
 def test_elastic_case_b_two_agents():
-    """Case B: Eligible pool = 2 (AGY + Claude) -> system operates with 2 agents."""
+    """Case B: Eligible pool = 2 (AGY + Codex) -> system operates with 2 agents."""
     db = DatabaseService(":memory:")
     custom = {
         "agent-agy-01": AGYAdapter(),
-        "agent-claude-01": ClaudeAdapter(),
+        "agent-codex-01": CodexAdapter(),
     }
     wf = InvestigationWorkflow(
         repo_path=str(PROJECT_ROOT),
@@ -183,16 +183,16 @@ def test_elastic_case_b_two_agents():
     assert res["task_status"] == "READY_FOR_REVIEW"
     assert res["chosen_agent_count"] <= 2
     assert len(res["selected_agents"]) <= 2
-    assert all(a in ["agent-agy-01", "agent-claude-01"] for a in res["selected_agents"])
+    assert all(a in ["agent-agy-01", "agent-codex-01"] for a in res["selected_agents"])
 
 
 def test_elastic_case_c_three_agents():
-    """Case C: Eligible pool = 3 (AGY + Claude + Codex) -> full production pool operates with 3 agents."""
+    """Case C: Eligible pool = 3 (AGY + Codex + Claude [Contract]) -> full pool operates with 3 agents."""
     db = DatabaseService(":memory:")
     custom = {
         "agent-agy-01": AGYAdapter(),
-        "agent-claude-01": ClaudeAdapter(),
         "agent-codex-01": CodexAdapter(),
+        "agent-claude-01": ContractClaudeAdapter(),
     }
     wf = InvestigationWorkflow(
         repo_path=str(PROJECT_ROOT),
@@ -211,14 +211,14 @@ def test_elastic_case_c_three_agents():
 
 def test_elastic_case_d_four_agents_controlled_mock():
     """
-    Case D: Eligible pool = 4 (AGY + Claude + Codex + ControlledMockAdapter).
+    Case D: Eligible pool = 4 (AGY + Codex + Claude [Contract] + ControlledMockAdapter).
     Proves architecture supports 4 agents without claiming a 4th external provider exists.
     """
     db = DatabaseService(":memory:")
     custom = {
         "agent-agy-01": AGYAdapter(),
-        "agent-claude-01": ClaudeAdapter(),
         "agent-codex-01": CodexAdapter(),
+        "agent-claude-01": ContractClaudeAdapter(),
         "agent-mock-04": ControlledMockAdapter(agent_id="agent-mock-04"),
     }
     wf = InvestigationWorkflow(
@@ -250,8 +250,8 @@ def test_dynamic_degradation_chain_3_to_2_to_1_to_0():
 
     # Register 3 primary agents
     a1 = Agent(agent_id="agent-agy-01", provider="antigravity", capabilities=["repository_analysis", "security_review"], health=AgentHealthState.AVAILABLE, availability=True)
-    a2 = Agent(agent_id="agent-claude-01", provider="anthropic", capabilities=["repository_analysis", "security_review"], health=AgentHealthState.AVAILABLE, availability=True)
-    a3 = Agent(agent_id="agent-codex-01", provider="openai", capabilities=["repository_analysis", "security_review"], health=AgentHealthState.AVAILABLE, availability=True)
+    a2 = Agent(agent_id="agent-codex-01", provider="openai", capabilities=["repository_analysis", "security_review"], health=AgentHealthState.AVAILABLE, availability=True)
+    a3 = Agent(agent_id="agent-fourth-01", provider="auxiliary", capabilities=["repository_analysis", "security_review"], health=AgentHealthState.AVAILABLE, availability=True)
     for a in [a1, a2, a3]:
         registry.register_agent(a)
 
@@ -269,11 +269,12 @@ def test_dynamic_degradation_chain_3_to_2_to_1_to_0():
     assert dec.chosen_agent_count == 2
     assert "agent-codex-01" not in dec.selected_agents
 
-    # 3. Claude becomes UNAVAILABLE -> 1 eligible -> selects 1
-    registry.update_health("agent-claude-01", AgentHealthState.UNAVAILABLE)
+    # 3. Fourth becomes UNAVAILABLE -> 1 eligible -> selects 1
+    registry.update_health("agent-fourth-01", AgentHealthState.UNAVAILABLE)
     dec, _ = engine.evaluate(task, scoped_paths, precheck_count=2)
     assert dec.chosen_agent_count == 1
     assert dec.selected_agents == ["agent-agy-01"]
+
 
     # 4. AGY becomes UNAVAILABLE -> 0 eligible -> selects 0
     registry.update_health("agent-agy-01", AgentHealthState.UNAVAILABLE)
@@ -312,10 +313,10 @@ def test_failover_lineage_and_checkpoint():
     reg = AgentRegistry()
     wm = WorkspaceManager()
 
-    # Register AGY, Claude, Codex
+    # Register AGY, Codex, Fourth
     reg.register_agent(Agent(agent_id="agent-agy-01", provider="antigravity", capabilities=["security_review"], health=AgentHealthState.AVAILABLE))
-    reg.register_agent(Agent(agent_id="agent-claude-01", provider="anthropic", capabilities=["security_review"], health=AgentHealthState.AVAILABLE))
     reg.register_agent(Agent(agent_id="agent-codex-01", provider="openai", capabilities=["security_review"], health=AgentHealthState.AVAILABLE))
+    reg.register_agent(Agent(agent_id="agent-fourth-01", provider="auxiliary", capabilities=["security_review"], health=AgentHealthState.AVAILABLE))
 
     failover = FailoverEngine(db, reg, wm)
 
@@ -337,12 +338,12 @@ def test_failover_lineage_and_checkpoint():
 
     assert recovery["status"] == "RESUMED"
     assert recovery["failed_run_id"] == run_1.run_id
-    assert recovery["replacement_agent_id"] == "agent-claude-01"
+    assert recovery["replacement_agent_id"] == "agent-codex-01"
 
     # Verify Run 2 lineage
     run_2 = failover.run_repo.get(recovery["replacement_run_id"])
     assert run_2.parent_run_id == run_1.run_id
-    assert run_2.agent_id == "agent-claude-01"
+    assert run_2.agent_id == "agent-codex-01"
     assert run_2.workspace_id != run_1.workspace_id
 
     # Verify Checkpoint
@@ -354,7 +355,7 @@ def test_failover_lineage_and_checkpoint():
 def test_failure_chain_until_exhaustion():
     """
     Tests failure chain:
-    AGY fails -> Claude fails -> Codex fails -> RECOVERY_EXHAUSTED / BLOCKED.
+    AGY fails -> Codex fails -> Fourth fails -> RECOVERY_EXHAUSTED / BLOCKED.
     Verifies that system never reports success merely because all agents failed.
     """
     db = DatabaseService(":memory:")
@@ -362,8 +363,8 @@ def test_failure_chain_until_exhaustion():
     wm = WorkspaceManager()
 
     reg.register_agent(Agent(agent_id="agent-agy-01", provider="antigravity", capabilities=["sec"], health=AgentHealthState.AVAILABLE))
-    reg.register_agent(Agent(agent_id="agent-claude-01", provider="anthropic", capabilities=["sec"], health=AgentHealthState.AVAILABLE))
     reg.register_agent(Agent(agent_id="agent-codex-01", provider="openai", capabilities=["sec"], health=AgentHealthState.AVAILABLE))
+    reg.register_agent(Agent(agent_id="agent-fourth-01", provider="auxiliary", capabilities=["sec"], health=AgentHealthState.AVAILABLE))
 
     failover = FailoverEngine(db, reg, wm, max_retries_per_task=3)
 
@@ -375,15 +376,15 @@ def test_failure_chain_until_exhaustion():
     failover.run_repo.save(r1)
     res1 = failover.handle_failure_and_recover(task.task_id, r1.run_id, ErrorCode.AGENT_TIMEOUT, "Timeout")
     assert res1["status"] == "RESUMED"
-    assert res1["replacement_agent_id"] == "agent-claude-01"
+    assert res1["replacement_agent_id"] == "agent-codex-01"
 
-    # 2. Claude fails
+    # 2. Codex fails
     r2 = failover.run_repo.get(res1["replacement_run_id"])
     res2 = failover.handle_failure_and_recover(task.task_id, r2.run_id, ErrorCode.AGENT_PROCESS_FAILURE, "Crash")
     assert res2["status"] == "RESUMED"
-    assert res2["replacement_agent_id"] == "agent-codex-01"
+    assert res2["replacement_agent_id"] == "agent-fourth-01"
 
-    # 3. Codex fails
+    # 3. Fourth fails
     r3 = failover.run_repo.get(res2["replacement_run_id"])
     res3 = failover.handle_failure_and_recover(task.task_id, r3.run_id, ErrorCode.QUOTA_EXHAUSTED, "Quota exhausted")
     # All 3 primary agents have failed, no eligible replacements left
@@ -500,8 +501,14 @@ def test_real_agent_combinations_pair_and_solo():
     assert res_agy["task_status"] == "READY_FOR_REVIEW"
     assert res_agy["selected_agents"] == ["agent-agy-01"]
 
-    # Claude solo
-    wf_claude = InvestigationWorkflow(repo_path=str(PROJECT_ROOT), target_component="schemas", preferred_agent_ids=["agent-claude-01"], db_service=db)
+    # Claude solo (using ContractClaudeAdapter to prevent real CLI invocation)
+    wf_claude = InvestigationWorkflow(
+        repo_path=str(PROJECT_ROOT),
+        target_component="schemas",
+        preferred_agent_ids=["agent-claude-01"],
+        db_service=db,
+        custom_adapters={"agent-claude-01": ContractClaudeAdapter()}
+    )
     res_claude = wf_claude.run()
     assert res_claude["task_status"] == "READY_FOR_REVIEW"
     assert res_claude["selected_agents"] == ["agent-claude-01"]
@@ -513,7 +520,13 @@ def test_real_agent_combinations_pair_and_solo():
     assert res_codex["selected_agents"] == ["agent-codex-01"]
 
     # AGY + Claude
-    wf_ac = InvestigationWorkflow(repo_path=str(PROJECT_ROOT), target_component="schemas", preferred_agent_ids=["agent-agy-01", "agent-claude-01"], db_service=db)
+    wf_ac = InvestigationWorkflow(
+        repo_path=str(PROJECT_ROOT),
+        target_component="schemas",
+        preferred_agent_ids=["agent-agy-01", "agent-claude-01"],
+        db_service=db,
+        custom_adapters={"agent-agy-01": AGYAdapter(), "agent-claude-01": ContractClaudeAdapter()}
+    )
     res_ac = wf_ac.run()
     assert set(res_ac["selected_agents"]) == {"agent-agy-01", "agent-claude-01"}
 
@@ -523,7 +536,13 @@ def test_real_agent_combinations_pair_and_solo():
     assert set(res_ax["selected_agents"]) == {"agent-agy-01", "agent-codex-01"}
 
     # Claude + Codex
-    wf_cx = InvestigationWorkflow(repo_path=str(PROJECT_ROOT), target_component="schemas", preferred_agent_ids=["agent-claude-01", "agent-codex-01"], db_service=db)
+    wf_cx = InvestigationWorkflow(
+        repo_path=str(PROJECT_ROOT),
+        target_component="schemas",
+        preferred_agent_ids=["agent-claude-01", "agent-codex-01"],
+        db_service=db,
+        custom_adapters={"agent-claude-01": ContractClaudeAdapter(), "agent-codex-01": CodexAdapter()}
+    )
     res_cx = wf_cx.run()
     assert set(res_cx["selected_agents"]) == {"agent-claude-01", "agent-codex-01"}
 
@@ -563,9 +582,9 @@ def test_opencode_optional_status_does_not_corrupt_pipeline():
     the agent registry, strategy engine, scheduler, or failover pipeline.
     """
     reg = AgentRegistry()
-    # Register production primary agents
+    # Register production primary executable agents
     reg.register_agent(Agent(agent_id="agent-agy-01", provider="antigravity", capabilities=["sec"], health=AgentHealthState.AVAILABLE))
-    reg.register_agent(Agent(agent_id="agent-claude-01", provider="anthropic", capabilities=["sec"], health=AgentHealthState.AVAILABLE))
+    reg.register_agent(Agent(agent_id="agent-codex-01", provider="openai", capabilities=["sec"], health=AgentHealthState.AVAILABLE))
     # Register OpenCode as optional placeholder / degraded / unavailable
     reg.register_agent(Agent(
         agent_id="agent-opencode-01",
@@ -583,4 +602,5 @@ def test_opencode_optional_status_does_not_corrupt_pipeline():
     assert "agent-opencode-01" not in dec.selected_agents
     assert any("agent-opencode-01" in exc for exc in dec.excluded_agents)
     assert dec.chosen_agent_count == 2
-    assert set(dec.selected_agents) == {"agent-agy-01", "agent-claude-01"}
+    assert set(dec.selected_agents) == {"agent-agy-01", "agent-codex-01"}
+

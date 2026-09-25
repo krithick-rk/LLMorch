@@ -35,8 +35,8 @@ def db():
 def registry():
     reg = AgentRegistry()
     reg.register_agent(Agent(agent_id="agent-agy-01", provider="antigravity", interface=AgentInterface.CLI, capabilities=["repository_analysis", "security_review"], health=AgentHealthState.AVAILABLE, availability=True))
-    reg.register_agent(Agent(agent_id="agent-claude-01", provider="anthropic", interface=AgentInterface.CLI, capabilities=["repository_analysis", "security_review"], health=AgentHealthState.AVAILABLE, availability=True))
     reg.register_agent(Agent(agent_id="agent-codex-01", provider="openai", interface=AgentInterface.CLI, capabilities=["repository_analysis", "security_review"], health=AgentHealthState.AVAILABLE, availability=True))
+    reg.register_agent(Agent(agent_id="agent-fourth-01", provider="auxiliary", interface=AgentInterface.CLI, capabilities=["repository_analysis", "security_review"], health=AgentHealthState.AVAILABLE, availability=True))
     return reg
 
 
@@ -61,7 +61,7 @@ def test_agent_process_crash_failover(db, registry):
     )
 
     assert result["status"] == "RESUMED"
-    assert result["replacement_agent_id"] == "agent-claude-01"
+    assert result["replacement_agent_id"] == "agent-codex-01"
     assert result["replacement_run_id"] != run1.run_id
 
     updated_run1 = run_repo.get(run1.run_id)
@@ -70,7 +70,7 @@ def test_agent_process_crash_failover(db, registry):
 
     run2 = run_repo.get(result["replacement_run_id"])
     assert run2.parent_run_id == run1.run_id
-    assert run2.agent_id == "agent-claude-01"
+    assert run2.agent_id == "agent-codex-01"
 
 
 def test_agent_timeout_failover(db, registry):
@@ -91,7 +91,7 @@ def test_agent_timeout_failover(db, registry):
     )
 
     assert result["status"] == "RESUMED"
-    assert result["replacement_agent_id"] == "agent-claude-01"
+    assert result["replacement_agent_id"] == "agent-codex-01"
 
     updated_run1 = run_repo.get(run1.run_id)
     assert updated_run1.status == RunStatus.TIMEOUT
@@ -115,7 +115,7 @@ def test_simulated_quota_exhaustion(db, registry):
     )
 
     assert result["status"] == "RESUMED"
-    assert result["replacement_agent_id"] == "agent-claude-01"
+    assert result["replacement_agent_id"] == "agent-codex-01"
 
     agy_agent = registry.get_agent("agent-agy-01")
     assert agy_agent.health == AgentHealthState.QUOTA_LIMITED
@@ -134,14 +134,14 @@ def test_loop_prevention(db, registry):
     run_repo.save(run1)
     engine.handle_failure_and_recover(task.task_id, run1.run_id, ErrorCode.AGENT_PROCESS_FAILURE, "Crash 1")
 
-    # Attempt 2 (Claude fails)
-    run2 = Run(task_id=task.task_id, parent_run_id=run1.run_id, agent_id="agent-claude-01", workspace_id="ws-2", environment_fingerprint="env1")
+    # Attempt 2 (Codex fails)
+    run2 = Run(task_id=task.task_id, parent_run_id=run1.run_id, agent_id="agent-codex-01", workspace_id="ws-2", environment_fingerprint="env1")
     run_repo.save(run2)
     res2 = engine.handle_failure_and_recover(task.task_id, run2.run_id, ErrorCode.AGENT_PROCESS_FAILURE, "Crash 2")
 
-    # Codex should be selected next (AGY and Claude are in recovery chain and excluded!)
+    # agent-fourth-01 should be selected next (AGY and Codex are in recovery chain and excluded!)
     assert res2["status"] == "RESUMED"
-    assert res2["replacement_agent_id"] == "agent-codex-01"
+    assert res2["replacement_agent_id"] == "agent-fourth-01"
 
 
 def test_no_eligible_replacement(db):

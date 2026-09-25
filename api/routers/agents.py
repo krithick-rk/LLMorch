@@ -112,6 +112,12 @@ def _row_to_agent(row: dict, conn: Any = None) -> AgentSummary:
         except Exception:
             pass
 
+    from scheduler.execution_policy import get_execution_policy
+    exec_policy = get_execution_policy()
+    is_executable = exec_policy.is_agent_executable(aid)
+    disabled_reason = exec_policy.get_agent_disabled_reason(aid)
+    agent_status = "REGISTERED" if not is_executable else (row.get("status", "ACTIVE") or "ACTIVE")
+
     return AgentSummary(
         agent_id=aid,
         provider=row.get("provider", "unknown"),
@@ -119,8 +125,10 @@ def _row_to_agent(row: dict, conn: Any = None) -> AgentSummary:
         capabilities=caps,
         health=row.get("health", "UNKNOWN"),
         role=row.get("role", "general_analysis") or "general_analysis",
-        status=row.get("status", "ACTIVE") or "ACTIVE",
-        enabled=bool(row.get("enabled", 1)),
+        status=agent_status,
+        enabled=bool(row.get("enabled", 1)) and is_executable,
+        executable=is_executable,
+        execution_disabled_reason=disabled_reason,
         current_model_id=curr_model,
         supported_models=supp_models,
         current_task_id=current_task_id,

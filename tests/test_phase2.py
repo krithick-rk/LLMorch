@@ -14,13 +14,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from adapters.base import BaseAgentAdapter
 from adapters.agy_adapter import AGYAdapter
-from adapters.claude_adapter import ClaudeAdapter
+from adapters.claude_adapter import ClaudeAdapter, ContractClaudeAdapter
 from registry.agent_registry import AgentRegistry
 from schemas.agent import Agent, AgentInterface
 from schemas.health import AgentHealthState
 from schemas.agent_selection import AgentSelectionRequest
 from schemas.task_result import TaskResult
 from schemas.task import Task
+from schemas.errors import AgentExecutionDisabled
 from orchestrator.investigation import InvestigationWorkflow
 from history.database import DatabaseService
 
@@ -103,9 +104,15 @@ def test_model_independence_execution_flow():
     assert res_agy["assigned_agent"] == "agent-agy-01"
     assert res_agy["provider"] == "antigravity"
 
-    # Run same logical investigation task with Claude agent
+    # Run same logical investigation task with Claude agent (using ContractClaudeAdapter to prevent real CLI invocation)
     db2 = DatabaseService(":memory:")
-    wf_claude = InvestigationWorkflow(repo_path=str(PROJECT_ROOT), target_component="schemas", preferred_agent_id="agent-claude-01", db_service=db2)
+    wf_claude = InvestigationWorkflow(
+        repo_path=str(PROJECT_ROOT),
+        target_component="schemas",
+        preferred_agent_id="agent-claude-01",
+        db_service=db2,
+        custom_adapters={"agent-claude-01": ContractClaudeAdapter()}
+    )
     res_claude = wf_claude.run()
     assert res_claude["assigned_agent"] == "agent-claude-01"
     assert res_claude["provider"] == "anthropic"
@@ -117,13 +124,13 @@ def test_model_independence_execution_flow():
 
 
 def test_failure_isolation():
-    # Simulate process failure in adapter
-    claude = ClaudeAdapter(cli_executable="non-existent-binary")
+    # Verify Claude execution is rejected by safety policy before subprocess creation
+    claude = ClaudeAdapter()
     task = Task(objective="Fail isolation test")
 
-    res = claude.execute_task_sync(task, "/tmp", "prompt")
-    assert res["exit_code"] == -1
-    assert res["run"].status.value == "FAILED"
+    with pytest.raises(AgentExecutionDisabled):
+        claude.execute_task_sync(task, "/tmp", "prompt")
+
 
 
 if __name__ == "__main__":

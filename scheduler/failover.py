@@ -193,14 +193,19 @@ class FailoverEngine:
 
         failed_agents_in_chain = [r.agent_id for r in past_runs]
 
+        from scheduler.execution_policy import get_execution_policy
+        exec_policy = get_execution_policy()
+
         all_agents = self.registry.list_agents()
         eligible_replacements = [
             a for a in all_agents
             if a.agent_id not in failed_agents_in_chain
             and a.availability
             and a.health == AgentHealthState.AVAILABLE
+            and exec_policy.is_agent_executable(a.agent_id)
             and all(cap in a.capabilities for cap in task.required_capabilities)
         ]
+
 
         self.event_repo.record(Event(
             event_type=EventType.REPLACEMENT_CANDIDATES_RESOLVED,

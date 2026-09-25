@@ -93,6 +93,14 @@ class AgentSwitcher:
         if not getattr(target_agent, "enabled", True):
             raise AgentUnavailableError(f"Target agent '{new_agent_id}' is disabled by analyst policy")
 
+        # Execution policy check
+        from scheduler.execution_policy import get_execution_policy
+        exec_policy = get_execution_policy()
+        if not exec_policy.is_agent_executable(new_agent_id):
+            reason = exec_policy.get_agent_disabled_reason(new_agent_id) or "Execution disabled by policy"
+            raise AgentUnavailableError(f"Target agent '{new_agent_id}' cannot be switched to: {reason}")
+
+
         # Capability check
         req_caps = set(task.required_capabilities)
         agent_caps = set(target_agent.capabilities)

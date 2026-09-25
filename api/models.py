@@ -75,7 +75,10 @@ class AgentSummary(BaseModel):
     tokens_remaining: Optional[int] = None
     failover_count: int = 0
     switch_count: int = 0
+    executable: bool = True
+    execution_disabled_reason: Optional[str] = None
     registered_at: Optional[datetime] = None
+
 
 
 # ─── Events ───────────────────────────────────────────────────────────────────

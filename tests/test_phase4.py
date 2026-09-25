@@ -38,7 +38,7 @@ def test_strategy_engine_1_agent_selection():
 def test_strategy_engine_2_agent_selection():
     registry = AgentRegistry()
     registry.register_agent(Agent(agent_id="agent-agy-01", provider="antigravity", interface=AgentInterface.CLI, capabilities=["repository_analysis", "security_review"]))
-    registry.register_agent(Agent(agent_id="agent-claude-01", provider="anthropic", interface=AgentInterface.CLI, capabilities=["repository_analysis", "security_review"]))
+    registry.register_agent(Agent(agent_id="agent-codex-01", provider="openai", interface=AgentInterface.CLI, capabilities=["repository_analysis", "security_review"]))
 
     engine = StrategyEngine(registry, config={"max_agents": 4})
     task = Task(objective="Investigate state transition privilege vulnerability in auth module", required_capabilities=["repository_analysis", "security_review"])
@@ -52,8 +52,8 @@ def test_strategy_engine_2_agent_selection():
 def test_strategy_engine_3_agent_selection():
     registry = AgentRegistry()
     registry.register_agent(Agent(agent_id="agent-agy-01", provider="antigravity", interface=AgentInterface.CLI, capabilities=["repository_analysis", "security_review"]))
-    registry.register_agent(Agent(agent_id="agent-claude-01", provider="anthropic", interface=AgentInterface.CLI, capabilities=["repository_analysis", "security_review"]))
     registry.register_agent(Agent(agent_id="agent-codex-01", provider="openai", interface=AgentInterface.CLI, capabilities=["repository_analysis", "security_review"]))
+    registry.register_agent(Agent(agent_id="agent-fourth-01", provider="auxiliary", interface=AgentInterface.CLI, capabilities=["repository_analysis", "security_review"]))
 
     engine = StrategyEngine(registry, config={"max_agents": 4})
     task = Task(objective="Investigate high complexity crypto key boot lifecycle vulnerability across files", required_capabilities=["repository_analysis", "security_review"])
@@ -95,7 +95,7 @@ def test_hard_constraint_filtering_unavailable_agent():
 def test_budget_constrained_selection():
     registry = AgentRegistry()
     registry.register_agent(Agent(agent_id="agent-agy-01", provider="antigravity", interface=AgentInterface.CLI, capabilities=["security_review"]))
-    registry.register_agent(Agent(agent_id="agent-claude-01", provider="anthropic", interface=AgentInterface.CLI, capabilities=["security_review"]))
+    registry.register_agent(Agent(agent_id="agent-codex-01", provider="openai", interface=AgentInterface.CLI, capabilities=["security_review"]))
 
     engine = StrategyEngine(registry, config={"max_agents": 4})
     task = Task(objective="Investigate crypto auth", required_capabilities=["security_review"])
@@ -108,7 +108,7 @@ def test_budget_constrained_selection():
 def test_explicit_count_override():
     registry = AgentRegistry()
     registry.register_agent(Agent(agent_id="agent-agy-01", provider="antigravity", interface=AgentInterface.CLI, capabilities=["security_review"]))
-    registry.register_agent(Agent(agent_id="agent-claude-01", provider="anthropic", interface=AgentInterface.CLI, capabilities=["security_review"]))
+    registry.register_agent(Agent(agent_id="agent-codex-01", provider="openai", interface=AgentInterface.CLI, capabilities=["security_review"]))
 
     engine = StrategyEngine(registry, config={"max_agents": 4})
     task = Task(objective="Simple task", required_capabilities=["security_review"])
