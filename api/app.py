@@ -48,6 +48,7 @@ from api.routers import (
     closure,
     policies,
     context_fabric,
+    projects,
 )
 
 # ─── App ──────────────────────────────────────────────────────────────────────
@@ -106,6 +107,7 @@ app.include_router(specifications.router)
 app.include_router(closure.router)
 app.include_router(policies.router)
 app.include_router(context_fabric.router)
+app.include_router(projects.router)
 
 
 

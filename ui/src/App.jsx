@@ -27,6 +27,10 @@ import CreateTaskModal from './components/CreateTaskModal'
 import TasksPage from './components/TasksPage'
 import AgentsPage from './components/AgentsPage'
 import DecisionsPage from './components/DecisionsPage'
+import ProjectSwitcher from './components/ProjectSwitcher'
+import NewProjectModal from './components/NewProjectModal'
+import ProjectHomePage from './components/ProjectHomePage'
+import MasterSessionPage from './components/MasterSessionPage'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1327,13 +1331,14 @@ function GlobalIntelligencePage({ refreshSignal }) {
 
 // ─── App Shell ────────────────────────────────────────────────────────────────
 
-// Task-Oriented Navigation Hierarchy (Section 9)
+// Task-Oriented Navigation Hierarchy (Section 9 & 32)
 const NAV_SECTIONS = [
   {
     label: 'WORKSPACE',
     pages: [
+      { id: 'home',               label: 'Project Home',      icon: '🏠' },
+      { id: 'master',             label: 'Master Session',    icon: '⬡' },
       { id: 'target-repo',        label: 'Repository',        icon: '⊙' },
-      { id: 'specifications',     label: 'Specifications',    icon: '📖' },
       { id: 'verification-plan',  label: 'Verification Plan', icon: '📋' },
     ],
   },
@@ -1469,6 +1474,8 @@ export default function App() {
   // Route parsing for persistent URLs & new-tab support
   const parseRoute = () => {
     const p = window.location.pathname
+    if (p === '/' || p.startsWith('/home')) return { page: 'home' }
+    if (p.startsWith('/master')) return { page: 'master' }
     if (p.startsWith('/run/')) return { page: 'run', entityId: p.replace('/run/', '') }
     if (p.startsWith('/runs')) return { page: 'runs' }
     if (p.startsWith('/tasks')) return { page: 'tasks' }
@@ -1501,7 +1508,7 @@ export default function App() {
     if (p.startsWith('/workpackage/')) return { page: 'verification-plan', entityId: p.replace('/workpackage/', '') }
     if (p.startsWith('/gap/')) return { page: 'closure', entityId: p.replace('/gap/', '') }
     if (p.startsWith('/settings')) return { page: 'settings' }
-    return { page: 'target-repo' }
+    return { page: 'home' }
   }
 
   const [page, setPageState] = useState(() => parseRoute().page)
@@ -1510,6 +1517,19 @@ export default function App() {
   const [wsConnected, setWsConnected] = useState(false)
   const [eventLog, setEventLog] = useState([])
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false)
+  const [activeProject, setActiveProject] = useState(null)
+  const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
+
+  const loadActiveProject = useCallback(async () => {
+    try {
+      const p = await api.activeProject().catch(() => null)
+      if (p) setActiveProject(p)
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    loadActiveProject()
+  }, [loadActiveProject, refreshSignal])
 
   // Resizable sidebar state persisted to localStorage (Section 34)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -1741,6 +1761,8 @@ export default function App() {
     const props = { refreshSignal, onNavigate: setPage, currentRun }
     const entId = selectedEntity?.entityId || selectedEntity?.id
     switch (page) {
+      case 'home':         return <ProjectHomePage activeProject={activeProject} onNavigate={setPage} onOpenCreateTask={() => setIsCreateTaskOpen(true)} {...props} />
+      case 'master':       return <MasterSessionPage activeProject={activeProject} onNavigate={setPage} {...props} />
       case 'overview':     return <RunOverviewPage {...props} />
       case 'tasks':        return <TasksPage onOpenCreateTask={() => setIsCreateTaskOpen(true)} {...props} />
       case 'runs':         return <RunHistoryPage {...props} />
@@ -1765,7 +1787,7 @@ export default function App() {
       case 'specifications':    return <SpecificationsPage specId={entId} {...props} />
       case 'policies':          return <PoliciesPage policyId={entId} {...props} />
       case 'settings':     return <SettingsPage {...props} />
-      default:             return <TargetRepositoryPage {...props} />
+      default:             return <ProjectHomePage activeProject={activeProject} onNavigate={setPage} onOpenCreateTask={() => setIsCreateTaskOpen(true)} {...props} />
     }
   }
 
@@ -1779,6 +1801,19 @@ export default function App() {
             <div className="logo">LLMORCH</div>
             <div className="logo-sub">SoC Verification Console</div>
           </div>
+        </div>
+
+        {/* Project Switcher (Section 7) */}
+        <div style={{ marginLeft: 6, marginRight: 10, display: 'flex', alignItems: 'center' }}>
+          <ProjectSwitcher
+            activeProject={activeProject}
+            onProjectSelected={(p) => {
+              setActiveProject(p)
+              setRefreshSignal(s => s + 1)
+              setPage('home')
+            }}
+            onOpenNewProject={() => setIsNewProjectModalOpen(true)}
+          />
         </div>
 
         {/* Run identity */}
@@ -1941,6 +1976,17 @@ export default function App() {
             if (newTask?.task_id) {
               setPage('task', { entityId: newTask.task_id })
             }
+          }}
+        />
+      )}
+      {isNewProjectModalOpen && (
+        <NewProjectModal
+          isOpen={isNewProjectModalOpen}
+          onClose={() => setIsNewProjectModalOpen(false)}
+          onProjectCreated={(newProj) => {
+            setActiveProject(newProj)
+            setRefreshSignal(s => s + 1)
+            setPage('home')
           }}
         />
       )}

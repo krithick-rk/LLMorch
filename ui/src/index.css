@@ -68,17 +68,17 @@
   --gray-bg:        #f6f8fa;
   --gray-border:    #d0d7de;
 
-  /* Typography scale */
+  /* Typography scale — comfortable engineering workstation scale */
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
-  --fs-xs:   11px;
-  --fs-sm:   12px;
-  --fs-base: 13px;
-  --fs-md:   14px;
-  --fs-lg:   15px;
-  --fs-xl:   18px;
-  --fs-2xl:  22px;
-  --lh-base: 1.45;
+  --fs-xs:   12px;
+  --fs-sm:   13px;
+  --fs-base: 14px;
+  --fs-md:   15px;
+  --fs-lg:   17px;
+  --fs-xl:   20px;
+  --fs-2xl:  24px;
+  --lh-base: 1.5;
   --lh-tight: 1.25;
 
   /* Spacing */
@@ -96,8 +96,8 @@
   --radius-sm: 2px;
   --radius:    3px;
   --radius-md: 4px;
-  --nav-width: 210px;
-  --header-h:  46px;
+  --nav-width: 220px;
+  --header-h:  50px;
   --status-bar-h: 28px;
 
   /* Transitions */
@@ -249,9 +249,9 @@ ul, ol { list-style: none; }
   align-items: center;
   justify-content: center;
   gap: var(--sp-2);
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: var(--radius);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 500;
   font-family: var(--font-sans);
   letter-spacing: 0.01em;
@@ -322,9 +322,9 @@ ul, ol { list-style: none; }
   color: var(--text-primary);
 }
 
-.btn-sm   { padding: 2px 7px; font-size: var(--fs-xs); }
-.btn-lg   { padding: 6px 14px; font-size: var(--fs-md); }
-.btn-icon { padding: 4px 6px; }
+.btn-sm   { padding: 3px 9px; font-size: var(--fs-sm); }
+.btn-lg   { padding: 8px 18px; font-size: var(--fs-lg); }
+.btn-icon { padding: 5px 8px; }
 
 /* ─── App Body Layout ───────────────────────────────────────────────────────── */
 .app-body {
@@ -353,10 +353,10 @@ ul, ol { list-style: none; }
 
 .sidebar-label {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   padding: var(--sp-2) var(--sp-5) var(--sp-1);
 }
@@ -365,12 +365,12 @@ ul, ol { list-style: none; }
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  padding: 5px var(--sp-5);
-  font-size: var(--fs-sm);
+  padding: 7px var(--sp-5);
+  font-size: var(--fs-base);
   color: var(--text-secondary);
   cursor: pointer;
   transition: background var(--t-fast), color var(--t-fast);
-  border-left: 2px solid transparent;
+  border-left: 3px solid transparent;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -386,8 +386,8 @@ ul, ol { list-style: none; }
   font-weight: 600;
 }
 .nav-item .nav-icon {
-  font-size: 11px;
-  width: 14px;
+  font-size: 14px;
+  width: 18px;
   text-align: center;
   flex-shrink: 0;
   color: var(--text-muted);
@@ -398,10 +398,10 @@ ul, ol { list-style: none; }
 .nav-item .nav-badge {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
   background: var(--bg-elevated);
-  padding: 1px 4px;
+  padding: 1px 6px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-dim);
 }
@@ -524,25 +524,26 @@ ul, ol { list-style: none; }
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   text-align: left;
 }
 .data-table th {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-subtle);
   white-space: nowrap;
 }
 .data-table td {
-  padding: 6px 10px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border-dim);
   color: var(--text-secondary);
+  font-size: 13.5px;
   vertical-align: middle;
 }
 .data-table tr:last-child td {
@@ -558,7 +559,7 @@ ul, ol { list-style: none; }
 }
 .data-table td.mono {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-code);
 }
 .data-table td.right { text-align: right; }
@@ -569,10 +570,10 @@ ul, ol { list-style: none; }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;

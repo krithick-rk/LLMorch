@@ -187,8 +187,14 @@ export const api = {
   createUserTask: (body) => req('/tasks/create', { method: 'POST', body: JSON.stringify(body) }),
   retryTaskWithOverrides: (taskId, body) => req(`/tasks/${taskId}/retry`, { method: 'POST', body: JSON.stringify(body) }),
   getTaskDiagnostics: (taskId) => req(`/tasks/${taskId}/diagnostics`),
-  checkWatchdog: (taskId) => req(`/tasks/${taskId}/watchdog-check`, { method: 'POST' }),
+  // Project Workspace & Natural Instruction Model
+  projects: () => req('/projects'),
+  activeProject: () => req('/projects/active'),
+  createProject: (body) => req('/projects', { method: 'POST', body: JSON.stringify(body) }),
+  activateProject: (id) => req(`/projects/${id}/activate`, { method: 'POST' }),
+  projectDetail: (id) => req(`/projects/${id}`),
+  projectBriefing: (id) => req(`/projects/${id}/briefing`),
+  interpretInstruction: (id, body) => req(`/projects/${id}/interpret`, { method: 'POST', body: JSON.stringify(body) }),
 };
-
 
 export default api;
