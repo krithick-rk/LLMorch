@@ -229,6 +229,7 @@ class WorkPackage(BaseModel):
 
 
 class VerificationPlan(BaseModel):
+    project_id: Optional[str] = None
     plan_id: str = Field(default_factory=lambda: f"vplan-{uuid.uuid4().hex[:8]}")
     version: int = 1
     repository_path: str

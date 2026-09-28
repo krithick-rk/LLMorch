@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import api from '../api'
 import { fmt, shortId, Mono, StatusBadge, Spinner, EmptyState, fmtElapsed } from './shared'
 
-export function RunHistoryPage({ refreshSignal, onNavigate }) {
+export function RunHistoryPage({ refreshSignal, onNavigate, activeProject }) {
   const [runs, setRuns] = useState(null)
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('ALL')
@@ -11,7 +11,9 @@ export function RunHistoryPage({ refreshSignal, onNavigate }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await api.runs({ limit: 100 })
+      const params = { limit: 100 }
+      if (activeProject?.project_id) params.project_id = activeProject.project_id
+      const res = await api.runs(params)
       const items = Array.isArray(res) ? res : (res.items || [])
       setRuns(items)
     } catch {
@@ -19,7 +21,7 @@ export function RunHistoryPage({ refreshSignal, onNavigate }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [activeProject?.project_id])
 
   useEffect(() => {
     load()

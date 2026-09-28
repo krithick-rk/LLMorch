@@ -13,6 +13,7 @@ import { StatusPill, Spinner, fmt, Mono } from './shared'
 
 export default function ProjectHomePage({ activeProject, onNavigate, onOpenCreateTask }) {
   const [briefing, setBriefing] = useState(null)
+  const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [instruction, setInstruction] = useState('')
   const [interpreting, setInterpreting] = useState(false)
@@ -23,12 +24,16 @@ export default function ProjectHomePage({ activeProject, onNavigate, onOpenCreat
     if (!activeProject?.project_id) return
     try {
       setLoading(true)
-      const data = await api.projectBriefing(activeProject.project_id).catch(() => null)
+      const [data, sum] = await Promise.all([
+        api.projectBriefing(activeProject.project_id).catch(() => null),
+        api.projectSummary(activeProject.project_id).catch(() => null),
+      ])
       setBriefing(data)
+      setSummary(sum)
     } finally {
       setLoading(false)
     }
-  }, [activeProject])
+  }, [activeProject?.project_id])
 
   useEffect(() => {
     loadBriefing()
@@ -116,6 +121,67 @@ export default function ProjectHomePage({ activeProject, onNavigate, onOpenCreat
           ✓ {dispatchMsg}
         </div>
       )}
+
+      {/* ── This Project Local Metrics Strip (Requirement 20 & 35) ───────────── */}
+      <div className="panel" style={{ marginBottom: 20, boxShadow: 'var(--shadow-sm)' }}>
+        <div className="panel-header" style={{ padding: '10px 18px', background: 'var(--bg-subtle)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-bright)' }}>
+              THIS PROJECT LOCAL DATA
+            </span>
+            <span className="badge badge-ready" style={{ fontSize: 10 }}>
+              STRICT ISOLATION
+            </span>
+          </div>
+          <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            Project ID: {activeProject?.project_id}
+          </span>
+        </div>
+        <div className="panel-body" style={{ padding: '14px 18px', display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 12 }}>
+          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Tasks</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: summary?.tasks > 0 ? 'var(--blue)' : 'var(--text-muted)', marginTop: 2 }}>
+              {summary ? summary.tasks : 0}
+            </div>
+          </div>
+          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Runs</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: summary?.runs > 0 ? 'var(--blue)' : 'var(--text-muted)', marginTop: 2 }}>
+              {summary ? summary.runs : 0}
+            </div>
+          </div>
+          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Decisions</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: summary?.decisions > 0 ? 'var(--amber)' : 'var(--text-muted)', marginTop: 2 }}>
+              {summary ? summary.decisions : 0}
+            </div>
+          </div>
+          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Findings</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: summary?.findings > 0 ? 'var(--red)' : 'var(--text-muted)', marginTop: 2 }}>
+              {summary ? summary.findings : 0}
+            </div>
+          </div>
+          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Evidence</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: summary?.evidence > 0 ? 'var(--blue)' : 'var(--text-muted)', marginTop: 2 }}>
+              {summary ? summary.evidence : 0}
+            </div>
+          </div>
+          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Gaps</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: summary?.gaps > 0 ? 'var(--amber)' : 'var(--text-muted)', marginTop: 2 }}>
+              {summary ? summary.gaps : 0}
+            </div>
+          </div>
+          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Plan</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: summary?.verification_plans > 0 ? 'var(--green)' : 'var(--text-muted)', marginTop: 4 }}>
+              {summary?.verification_plans > 0 ? `v${summary.verification_plans}` : 'Not created'}
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* ── Repository Intake & Classification Strip ─────────────────────────── */}
       <div className="panel" style={{ marginBottom: 20, boxShadow: 'var(--shadow-sm)' }}>

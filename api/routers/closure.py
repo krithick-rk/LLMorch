@@ -45,6 +45,46 @@ class RecordGapRequest(BaseModel):
     recommended_action: str = "Investigate further"
 
 
+@router.get("")
+def get_project_closure(
+    project_id: Optional[str] = None,
+    session: SessionInfo = Depends(require_session)
+):
+    """Retrieves project-scoped closure snapshot or clean 0% state for new projects."""
+    db = _get_db()
+    from history.project_repository import ProjectRepository
+    proj_repo = ProjectRepository(db)
+    target_project_id = project_id or proj_repo.get_active_project_id()
+
+    with db.get_connection() as conn:
+        plan_row = conn.execute(
+            "SELECT plan_id FROM verification_plans WHERE project_id = ? ORDER BY version DESC, created_at DESC LIMIT 1",
+            (target_project_id,)
+        ).fetchone()
+
+    if not plan_row:
+        return {
+            "snapshot": {
+                "snapshot_id": "snap-empty",
+                "plan_id": None,
+                "requirement_coverage_pct": 0.0,
+                "objective_coverage_pct": 0.0,
+                "total_requirements": 0,
+                "covered_requirements": 0,
+                "total_objectives": 0,
+                "covered_objectives": 0,
+                "open_gaps_count": 0,
+                "waivers_count": 0,
+                "evidence_items_count": 0,
+                "is_closed": False,
+            },
+            "coverage_items": [],
+            "open_gaps": [],
+            "waivers": []
+        }
+    return get_closure_snapshot(plan_row["plan_id"], session=session)
+
+
 @router.get("/{plan_id}")
 def get_closure_snapshot(
     plan_id: str,

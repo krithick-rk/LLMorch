@@ -148,6 +148,7 @@ def _build_run_summary(row: dict) -> RunSummary:
         task_id=row.get("task_id", ""),
         agent_id=row.get("agent_id", ""),
         status=row.get("status", "UNKNOWN"),
+        project_id=row.get("project_id"),
         run_state=row.get("run_state") or row.get("status", "RUNNING"),
         stage=row.get("stage", "REPOSITORY_ANALYSIS"),
         repository_name=row.get("repository_name"),
@@ -167,56 +168,97 @@ def _build_run_summary(row: dict) -> RunSummary:
 
 @router.get("", response_model=PaginatedResponse)
 def list_runs(
+    project_id: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: SessionInfo = Depends(require_session),
 ):
-    """List all runs, most recent first."""
+    """List all runs for active project, most recent first."""
     db = _get_db()
+    from history.project_repository import ProjectRepository
+    proj_repo = ProjectRepository(db)
+    target_project_id = project_id or proj_repo.get_active_project_id()
+
     with db.get_connection() as conn:
-        total = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-        rows = conn.execute(
-            "SELECT * FROM runs ORDER BY start_time DESC LIMIT ? OFFSET ?",
-            (limit, offset)
-        ).fetchall()
+        if target_project_id:
+            total = conn.execute("SELECT COUNT(*) FROM runs WHERE project_id = ?", (target_project_id,)).fetchone()[0]
+            rows = conn.execute(
+                "SELECT * FROM runs WHERE project_id = ? ORDER BY start_time DESC LIMIT ? OFFSET ?",
+                (target_project_id, limit, offset)
+            ).fetchall()
+        else:
+            total = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+            rows = conn.execute(
+                "SELECT * FROM runs ORDER BY start_time DESC LIMIT ? OFFSET ?",
+                (limit, offset)
+            ).fetchall()
     items = [_build_run_summary(dict(r)).model_dump() for r in rows]
     return PaginatedResponse(total=total, limit=limit, offset=offset, items=items)
 
 
 @router.get("/current", response_model=RunSummary)
-def get_current_run(session: SessionInfo = Depends(require_session)):
-    """Get the most recent active or last-run record."""
+def get_current_run(
+    project_id: Optional[str] = Query(None),
+    session: SessionInfo = Depends(require_session)
+):
+    """Get the most recent active or last-run record strictly for the requested or active project."""
     db = _get_db()
+    from history.project_repository import ProjectRepository
+    proj_repo = ProjectRepository(db)
+    target_project_id = project_id or proj_repo.get_active_project_id()
+
     with db.get_connection() as conn:
-        row = conn.execute("""
-            SELECT * FROM runs
-            WHERE run_state IN ('RUNNING','PAUSE_REQUESTED','PAUSED','RESUME_REQUESTED',
-                                'STOP_REQUESTED','DRAINING','CHECKPOINTING','WAITING_FOR_ANALYST','REPOSITORY_ANALYSIS')
-            ORDER BY start_time DESC LIMIT 1
-        """).fetchone()
-        if not row:
-            row = conn.execute(
-                "SELECT * FROM runs ORDER BY start_time DESC LIMIT 1"
-            ).fetchone()
+        if target_project_id:
+            row = conn.execute("""
+                SELECT * FROM runs
+                WHERE project_id = ? AND run_state IN ('RUNNING','PAUSE_REQUESTED','PAUSED','RESUME_REQUESTED',
+                                    'STOP_REQUESTED','DRAINING','CHECKPOINTING','WAITING_FOR_ANALYST','REPOSITORY_ANALYSIS')
+                ORDER BY start_time DESC LIMIT 1
+            """, (target_project_id,)).fetchone()
+            if not row:
+                row = conn.execute(
+                    "SELECT * FROM runs WHERE project_id = ? ORDER BY start_time DESC LIMIT 1",
+                    (target_project_id,)
+                ).fetchone()
+        else:
+            row = conn.execute("""
+                SELECT * FROM runs
+                WHERE run_state IN ('RUNNING','PAUSE_REQUESTED','PAUSED','RESUME_REQUESTED',
+                                    'STOP_REQUESTED','DRAINING','CHECKPOINTING','WAITING_FOR_ANALYST','REPOSITORY_ANALYSIS')
+                ORDER BY start_time DESC LIMIT 1
+            """).fetchone()
+            if not row:
+                row = conn.execute(
+                    "SELECT * FROM runs ORDER BY start_time DESC LIMIT 1"
+                ).fetchone()
+
     if not row:
-        raise HTTPException(status_code=404, detail="No runs found")
+        raise HTTPException(status_code=404, detail="No runs found for project")
     return _build_run_summary(dict(row))
 
 
 @router.get("/{run_id}", response_model=RunStateDetail)
 def get_run_detail(run_id: str, session: SessionInfo = Depends(require_session)):
-    """Detailed run state including task counts, agent counts, findings."""
+    """Detailed run state including task counts, agent counts, findings strictly scoped."""
     db = _get_db()
     row = _get_run_row(db, run_id)
+    p_id = row.get("project_id")
 
     with db.get_connection() as conn:
-        all_tasks = conn.execute(
-            "SELECT status FROM tasks WHERE status IS NOT NULL"
-        ).fetchall()
-
-        findings_count = conn.execute(
-            "SELECT COUNT(*) FROM findings"
-        ).fetchone()[0]
+        if p_id:
+            all_tasks = conn.execute(
+                "SELECT status FROM tasks WHERE project_id = ?", (p_id,)
+            ).fetchall()
+            findings_count = conn.execute(
+                "SELECT COUNT(*) FROM findings WHERE project_id = ?", (p_id,)
+            ).fetchone()[0]
+        else:
+            all_tasks = conn.execute(
+                "SELECT status FROM tasks WHERE workflow_id = ?", (run_id,)
+            ).fetchall()
+            findings_count = conn.execute(
+                "SELECT COUNT(*) FROM findings WHERE task_id IN (SELECT task_id FROM tasks WHERE workflow_id = ?)", (run_id,)
+            ).fetchone()[0]
 
     statuses = [t["status"] for t in all_tasks] if all_tasks else []
     active = sum(1 for s in statuses if s in ("RUNNING", "IN_PROGRESS"))
@@ -227,6 +269,7 @@ def get_run_detail(run_id: str, session: SessionInfo = Depends(require_session))
 
     return RunStateDetail(
         run_id=run_id,
+        project_id=p_id,
         run_state=row.get("run_state") or row.get("status", "RUNNING"),
         status=row.get("status", "UNKNOWN"),
         stage=row.get("stage", "REPOSITORY_ANALYSIS"),

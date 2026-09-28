@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback } from 'react'
 import api from '../../api'
 import { StatusPill, Spinner, fmt, Mono } from '../shared'
 
-export default function ClosurePage({ currentPlanId, onNavigate }) {
+export default function ClosurePage({ currentPlanId, onNavigate, activeProject }) {
   const [plans, setPlans] = useState([])
   const [selectedPlanId, setSelectedPlanId] = useState(currentPlanId || '')
   const [closureData, setClosureData] = useState(null)
@@ -22,19 +22,35 @@ export default function ClosurePage({ currentPlanId, onNavigate }) {
 
   const loadPlans = useCallback(async () => {
     try {
-      const res = await api.listVerificationPlans()
+      const params = {}
+      if (activeProject?.project_id) params.project_id = activeProject.project_id
+      const res = await api.listVerificationPlans(params)
       const pList = res.plans || []
       setPlans(pList)
-      if (pList.length > 0 && !selectedPlanId) {
-        setSelectedPlanId(pList[0].plan_id)
+      if (pList.length > 0) {
+        if (!selectedPlanId || !pList.some(p => p.plan_id === selectedPlanId)) {
+          setSelectedPlanId(pList[0].plan_id)
+        }
+      } else {
+        setSelectedPlanId('')
+        setClosureData(null)
+        setLoading(false)
       }
     } catch (err) {
       console.error('Failed to load plans:', err)
+      setPlans([])
+      setSelectedPlanId('')
+      setClosureData(null)
+      setLoading(false)
     }
-  }, [selectedPlanId])
+  }, [selectedPlanId, activeProject?.project_id])
 
   const loadClosure = useCallback(async (pId) => {
-    if (!pId) return
+    if (!pId) {
+      setClosureData(null)
+      setLoading(false)
+      return
+    }
     try {
       setLoading(true)
       const res = await api.getClosure(pId)
@@ -73,26 +89,18 @@ export default function ClosurePage({ currentPlanId, onNavigate }) {
   }
 
   const snapshot = closureData?.snapshot || {
-    objective_coverage_pct: 74,
-    covered_objectives: 136,
-    total_objectives: 184,
-    requirement_coverage_pct: 78,
-    covered_requirements: 86,
-    total_requirements: 110,
-    open_gaps_count: 3,
-    waivers_count: 2,
-    closure_readiness: 'BLOCKED'
+    objective_coverage_pct: 0,
+    covered_objectives: 0,
+    total_objectives: 0,
+    requirement_coverage_pct: 0,
+    covered_requirements: 0,
+    total_requirements: 0,
+    open_gaps_count: 0,
+    waivers_count: 0,
+    closure_readiness: 'NOT_STARTED'
   }
 
-  const bucketBreakdowns = closureData?.bucket_breakdowns || [
-    { bucket: 'RESET_AND_CLOCK', objectives: 12, covered: 9, waivers: 1, gaps: 0, status: 'PARTIAL' },
-    { bucket: 'CLOCK_DOMAIN_CROSSING', objectives: 14, covered: 11, waivers: 0, gaps: 1, status: 'PARTIAL' },
-    { bucket: 'SECURE_BOOT_AND_LIFECYCLE', objectives: 11, covered: 11, waivers: 0, gaps: 0, status: 'COVERED' },
-    { bucket: 'DEBUG_AND_TRACE', objectives: 8, covered: 3, waivers: 0, gaps: 1, status: 'BLOCKED' },
-    { bucket: 'ACCESS_CONTROL', objectives: 16, covered: 14, waivers: 1, gaps: 0, status: 'PARTIAL' },
-    { bucket: 'CRYPTO_ACCELERATOR', objectives: 9, covered: 9, waivers: 0, gaps: 0, status: 'COVERED' },
-    { bucket: 'INTERCONNECT_AND_FABRIC', objectives: 12, covered: 10, waivers: 0, gaps: 1, status: 'PARTIAL' },
-  ]
+  const bucketBreakdowns = closureData?.bucket_breakdowns || []
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -214,24 +222,32 @@ export default function ClosurePage({ currentPlanId, onNavigate }) {
                 </tr>
               </thead>
               <tbody>
-                {bucketBreakdowns.map((bb) => {
-                  const pct = Math.round((bb.covered / (bb.objectives || 1)) * 100)
-                  return (
-                    <tr key={bb.bucket}>
-                      <td>
-                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                          {bb.bucket.replace(/_/g, ' ')}
-                        </span>
-                      </td>
-                      <td className="mono">{bb.objectives}</td>
-                      <td className="mono" style={{ color: 'var(--green)', fontWeight: 600 }}>{bb.covered}</td>
-                      <td className="mono">{bb.waivers}</td>
-                      <td className="mono" style={{ color: bb.gaps > 0 ? 'var(--red)' : 'var(--text-muted)' }}>{bb.gaps}</td>
-                      <td className="mono">{pct}%</td>
-                      <td><StatusPill status={bb.status} /></td>
-                    </tr>
-                  )
-                })}
+                {bucketBreakdowns.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                      No plan closure data for this project. Generate or select a verification plan to view coverage breakdown.
+                    </td>
+                  </tr>
+                ) : (
+                  bucketBreakdowns.map((bb) => {
+                    const pct = Math.round((bb.covered / (bb.objectives || 1)) * 100)
+                    return (
+                      <tr key={bb.bucket}>
+                        <td>
+                          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                            {bb.bucket.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td className="mono">{bb.objectives}</td>
+                        <td className="mono" style={{ color: 'var(--green)', fontWeight: 600 }}>{bb.covered}</td>
+                        <td className="mono">{bb.waivers}</td>
+                        <td className="mono" style={{ color: bb.gaps > 0 ? 'var(--red)' : 'var(--text-muted)' }}>{bb.gaps}</td>
+                        <td className="mono">{pct}%</td>
+                        <td><StatusPill status={bb.status} /></td>
+                      </tr>
+                    )
+                  })
+                )}
               </tbody>
             </table>
           </div>

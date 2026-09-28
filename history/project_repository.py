@@ -185,14 +185,18 @@ class ProjectRepository:
             "updated_at": now,
         }
 
-    def list_projects(self) -> List[Dict[str, Any]]:
+    def list_projects(self, include_archived: bool = False) -> List[Dict[str, Any]]:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            rows = cursor.execute("""
+            query = """
                 SELECT project_id, name, target_directory, status, is_active, metadata, created_at, updated_at
                 FROM projects
-                ORDER BY is_active DESC, updated_at DESC
-            """).fetchall()
+            """
+            if not include_archived:
+                query += " WHERE status != 'ARCHIVED'"
+            query += " ORDER BY is_active DESC, updated_at DESC"
+
+            rows = cursor.execute(query).fetchall()
 
             result = []
             for r in rows:
@@ -245,13 +249,12 @@ class ProjectRepository:
             r = cursor.execute("""
                 SELECT project_id, name, target_directory, status, is_active, metadata, created_at, updated_at
                 FROM projects
-                WHERE is_active = 1
+                WHERE is_active = 1 AND status != 'ARCHIVED'
                 ORDER BY updated_at DESC
                 LIMIT 1
             """).fetchone()
             if not r:
-                # If none is marked active, get the first project and activate it
-                all_p = self.list_projects()
+                all_p = self.list_projects(include_archived=False)
                 if all_p:
                     self.set_active_project(all_p[0]["project_id"])
                     return all_p[0]
@@ -272,6 +275,10 @@ class ProjectRepository:
                 "updated_at": r["updated_at"],
             }
 
+    def get_active_project_id(self) -> Optional[str]:
+        act = self.get_active_project()
+        return act["project_id"] if act else None
+
     def set_active_project(self, project_id: str) -> Optional[Dict[str, Any]]:
         now = datetime.now(timezone.utc).isoformat()
         with self.db.get_connection() as conn:
@@ -283,6 +290,26 @@ class ProjectRepository:
                 WHERE project_id = ?
             """, (now, project_id))
             conn.commit()
+        return self.get_project(project_id)
+
+    def archive_project(self, project_id: str) -> Optional[Dict[str, Any]]:
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE projects
+                SET status = 'ARCHIVED', is_active = 0, updated_at = ?
+                WHERE project_id = ?
+            """, (now, project_id))
+            conn.commit()
+
+        # If we archived the active project, activate another non-archived project
+        active = self.get_active_project()
+        if not active:
+            candidates = self.list_projects(include_archived=False)
+            if candidates:
+                self.set_active_project(candidates[0]["project_id"])
+
         return self.get_project(project_id)
 
     def update_project(self, project_id: str, **kwargs) -> Optional[Dict[str, Any]]:
@@ -308,3 +335,63 @@ class ProjectRepository:
             conn.commit()
 
         return self.get_project(project_id)
+
+    def get_project_summary(self, project_id: str) -> Dict[str, Any]:
+        """Calculates project-scoped counts and runtime execution state strictly for project_id."""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            task_count = cursor.execute("SELECT COUNT(*) FROM tasks WHERE project_id = ?", (project_id,)).fetchone()[0]
+            active_tasks = cursor.execute(
+                "SELECT COUNT(*) FROM tasks WHERE project_id = ? AND status IN ('RUNNING','IN_PROGRESS','ANALYZING')",
+                (project_id,)
+            ).fetchone()[0]
+            run_count = cursor.execute("SELECT COUNT(*) FROM runs WHERE project_id = ?", (project_id,)).fetchone()[0]
+            decision_count = cursor.execute("SELECT COUNT(*) FROM questions WHERE project_id = ?", (project_id,)).fetchone()[0]
+            open_decisions = cursor.execute(
+                "SELECT COUNT(*) FROM questions WHERE project_id = ? AND status = 'QUESTION_PENDING'",
+                (project_id,)
+            ).fetchone()[0]
+            finding_count = cursor.execute("SELECT COUNT(*) FROM findings WHERE project_id = ?", (project_id,)).fetchone()[0]
+            evidence_count = cursor.execute("SELECT COUNT(*) FROM evidence WHERE project_id = ?", (project_id,)).fetchone()[0]
+            gap_count = cursor.execute("SELECT COUNT(*) FROM gaps WHERE project_id = ?", (project_id,)).fetchone()[0]
+            plan_count = cursor.execute("SELECT COUNT(*) FROM verification_plans WHERE project_id = ?", (project_id,)).fetchone()[0]
+
+            # Fetch active run for this project strictly
+            active_run_row = cursor.execute("""
+                SELECT * FROM runs
+                WHERE project_id = ? AND run_state IN ('RUNNING','PAUSE_REQUESTED','PAUSED','RESUME_REQUESTED','WAITING_FOR_ANALYST','REPOSITORY_ANALYSIS')
+                ORDER BY start_time DESC LIMIT 1
+            """, (project_id,)).fetchone()
+
+            runtime_state = "IDLE"
+            elapsed_seconds = 0.0
+            run_id = None
+            if active_run_row:
+                ar = dict(active_run_row)
+                run_id = ar.get("run_id")
+                runtime_state = ar.get("run_state") or ar.get("status") or "RUNNING"
+                analysis_start = ar.get("analysis_started_at")
+                if analysis_start and runtime_state == "RUNNING":
+                    try:
+                        st = datetime.fromisoformat(str(analysis_start).replace("Z", "+00:00"))
+                        elapsed_seconds = max(0.0, (datetime.now(timezone.utc) - st).total_seconds())
+                    except Exception:
+                        elapsed_seconds = float(ar.get("active_duration_seconds") or 0.0)
+                else:
+                    elapsed_seconds = float(ar.get("active_duration_seconds") or 0.0)
+
+            return {
+                "project_id": project_id,
+                "tasks": task_count,
+                "active_tasks": active_tasks,
+                "runs": run_count,
+                "decisions": decision_count,
+                "open_decisions": open_decisions,
+                "findings": finding_count,
+                "evidence": evidence_count,
+                "gaps": gap_count,
+                "verification_plans": plan_count,
+                "runtime_state": runtime_state,
+                "elapsed_seconds": int(elapsed_seconds),
+                "active_run_id": run_id,
+            }

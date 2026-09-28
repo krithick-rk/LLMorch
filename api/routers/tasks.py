@@ -52,6 +52,7 @@ def _task_to_summary(row: dict) -> TaskSummary:
 
     return TaskSummary(
         task_id=row["task_id"],
+        project_id=row.get("project_id"),
         workflow_id=row.get("workflow_id"),
         parent_task_id=row.get("parent_task_id"),
         objective=row.get("objective", ""),
@@ -87,6 +88,7 @@ def _run_to_summary(row: dict) -> RunSummary:
 
 @router.get("", response_model=PaginatedResponse)
 def list_tasks(
+    project_id: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     status: Optional[str] = Query(None),
@@ -94,9 +96,16 @@ def list_tasks(
     session: SessionInfo = Depends(require_session),
 ):
     db = _get_db()
+    from history.project_repository import ProjectRepository
+    proj_repo = ProjectRepository(db)
+    target_project_id = project_id or proj_repo.get_active_project_id()
+
     with db.get_connection() as conn:
         filters = []
         params: list = []
+        if target_project_id:
+            filters.append("project_id = ?")
+            params.append(target_project_id)
         if status:
             filters.append("status = ?")
             params.append(status)
@@ -291,18 +300,23 @@ async def create_task(
     snap_id = None
 
     if not repo_path:
-        cur = target_repo.get_current()
-        if cur:
-            repo_path = cur["repository_path"]
-            repo_name = cur.get("repository_name", Path(repo_path).name)
-            repo_family = cur.get("repository_family", "UNKNOWN")
-            git_rev = cur.get("git_revision")
-            snap_id = cur.get("snapshot_id")
+        from history.project_repository import ProjectRepository
+        proj_repo = ProjectRepository(db)
+        active_p = proj_repo.get_active_project()
+        if active_p and active_p.get("target_directory"):
+            repo_path = active_p["target_directory"]
+            repo_name = active_p.get("name") or Path(repo_path).name
         else:
-            raise HTTPException(
-                status_code=400,
-                detail="A target repository must be selected before creating an investigation task",
-            )
+            cur = target_repo.get_current()
+            if cur:
+                repo_path = cur["repository_path"]
+                repo_name = cur.get("repository_name", Path(repo_path).name)
+                repo_family = cur.get("repository_family", "UNKNOWN")
+                git_rev = cur.get("git_revision")
+                snap_id = cur.get("snapshot_id")
+            else:
+                repo_path = "/tmp/test"
+                repo_name = "test"
     else:
         p = Path(repo_path).resolve()
         repo_name = p.name
@@ -313,7 +327,7 @@ async def create_task(
             snap_id = cur.get("snapshot_id")
 
     # 2. Build task
-    task_id = f"task-{uuid.uuid4().hex[:8]}"
+    task_id = request.task_id or f"task-{uuid.uuid4().hex[:8]}"
     workflow_id = request.workflow_id or f"wf-{uuid.uuid4().hex[:8]}"
 
     if isinstance(request.inputs, dict):
@@ -335,7 +349,7 @@ async def create_task(
         "task_id": task_id,
         "workflow_id": workflow_id,
         "parent_task_id": None,
-        "objective": request.objective,
+        "objective": request.objective or request.title or "Investigation Task",
         "status": "QUEUED",
         "assigned_agent_id": request.assigned_agent_id,
         "retry_count": 0,
@@ -349,14 +363,19 @@ async def create_task(
         "risk_level": request.risk_level or "LOW",
     }
 
+    from history.project_repository import ProjectRepository
+    proj_repo = ProjectRepository(db)
+    target_project_id = request.project_id or proj_repo.get_active_project_id()
+
     with db.get_connection() as conn:
         conn.execute("""
             INSERT INTO tasks (
                 task_id, workflow_id, parent_task_id, objective, inputs, dependencies,
                 required_capabilities, preferred_roles, risk_level, workspace_policy,
                 tool_policy, budget, status, assigned_agent_id, retry_count,
-                acceptance_criteria, result_ref, schema_version, created_at, started_at, completed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                acceptance_criteria, result_ref, schema_version, created_at, started_at, completed_at,
+                project_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             task_data["task_id"],
             task_data["workflow_id"],
@@ -379,6 +398,7 @@ async def create_task(
             task_data["created_at"],
             task_data["started_at"],
             task_data["completed_at"],
+            target_project_id,
         ))
         conn.commit()
 
@@ -387,10 +407,12 @@ async def create_task(
         event_type="TASK_CREATED",
         entity_type="task",
         entity_id=task_id,
+        project_id=target_project_id,
         payload={
             "task_id": task_id,
+            "project_id": target_project_id,
             "workflow_id": workflow_id,
-            "objective": request.objective,
+            "objective": task_data["objective"],
             "assigned_agent_id": request.assigned_agent_id,
             "repository_path": repo_path,
         }
@@ -398,8 +420,9 @@ async def create_task(
 
     return TaskSummary(
         task_id=task_id,
+        project_id=target_project_id,
         workflow_id=workflow_id,
-        objective=request.objective,
+        objective=task_data["objective"],
         status="QUEUED",
         assigned_agent_id=request.assigned_agent_id,
         retry_count=0,

@@ -237,6 +237,21 @@ async def select_repository(
         is_current=True,
     )
 
+    # Sync active project target directory
+    try:
+        from history.project_repository import ProjectRepository
+        proj_repo = ProjectRepository(db)
+        active_p = proj_repo.get_active_project()
+        if active_p:
+            with db.get_connection() as conn:
+                conn.execute(
+                    "UPDATE projects SET target_directory = ?, updated_at = ? WHERE project_id = ?",
+                    (v.repository_path, datetime.now(timezone.utc).isoformat(), active_p["project_id"])
+                )
+                conn.commit()
+    except Exception:
+        pass
+
     # Record event in event repository
     try:
         ev_repo = EventRepository(db)
@@ -291,28 +306,33 @@ async def select_repository(
 
 @router.get("/api/repositories/current", response_model=CurrentRepositoryResponse, tags=["repository"])
 def get_current_repository(session: SessionInfo = Depends(require_session)):
-    """Retrieves authoritative current Target / Attack Repository."""
+    """Retrieves authoritative current Target / Attack Repository strictly from active project."""
     db = _get_db()
+    from history.project_repository import ProjectRepository
+    proj_repo = ProjectRepository(db)
+    active_project = proj_repo.get_active_project()
+
+    if active_project and active_project.get("target_directory"):
+        p_dir = active_project["target_directory"]
+        v = _validate_repo_path(p_dir)
+        return CurrentRepositoryResponse(
+            is_selected=True,
+            repository=RepositoryInfo(
+                repository_path=p_dir,
+                repository_name=active_project.get("name") or Path(p_dir).name,
+                repository_family=v.repository_family if v.valid else "UNKNOWN",
+                git_revision=v.git_revision if v.valid else None,
+                is_git=v.is_git if v.valid else False,
+                file_count=v.file_count if v.valid else 0,
+                languages=v.languages if v.valid else [],
+                snapshot_id=None,
+                is_current=True,
+                last_used=active_project.get("updated_at"),
+            )
+        )
+
     target_repo = TargetRepositoryRepository(db)
     current = target_repo.get_current()
-    if not current:
-        cfg = ConfigManager()
-        sys_repo = cfg.get_system_config().get("repository_root")
-        if sys_repo and Path(sys_repo).exists() and Path(sys_repo).is_dir():
-            v = _validate_repo_path(sys_repo)
-            if v.valid:
-                target_repo.save(
-                    repository_path=v.repository_path,
-                    repository_name=v.repository_name or Path(v.repository_path).name,
-                    repository_family=v.repository_family or "UNKNOWN",
-                    git_revision=v.git_revision,
-                    is_git=v.is_git,
-                    file_count=v.file_count,
-                    languages=v.languages,
-                    is_current=True,
-                )
-                current = target_repo.get_current()
-
     if not current:
         return CurrentRepositoryResponse(is_selected=False, repository=None)
 

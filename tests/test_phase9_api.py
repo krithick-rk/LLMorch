@@ -25,16 +25,18 @@ client = TestClient(app, raise_server_exceptions=True)
 
 def _seed_task(db, task_id=None, status="RUNNING"):
     from history.database import DatabaseService
+    from history.project_repository import ProjectRepository
     tid = task_id or f"task-{uuid.uuid4().hex[:8]}"
     now = datetime.now(timezone.utc).isoformat()
+    pid = ProjectRepository(db).get_active_project_id()
     with db.get_connection() as conn:
         conn.execute(
-            "INSERT INTO tasks (task_id, workflow_id, parent_task_id, objective, inputs, "
+            "INSERT INTO tasks (task_id, project_id, workflow_id, parent_task_id, objective, inputs, "
             "dependencies, required_capabilities, preferred_roles, risk_level, workspace_policy, "
             "tool_policy, budget, status, assigned_agent_id, retry_count, acceptance_criteria, "
             "result_ref, schema_version, created_at, started_at, completed_at) VALUES "
-            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (tid, "wf-test", None, "Test objective", "[]", "[]", "[]", "[]", "LOW",
+            "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (tid, pid, "wf-test", None, "Test objective", "[]", "[]", "[]", "[]", "LOW",
              "{}", "{}", "{}", status, "agent-agy-01", 0, "[]", None, "1.0", now, now, None)
         )
     return tid
@@ -57,16 +59,18 @@ def _seed_agent(db, agent_id=None, provider="agy"):
 
 def _seed_finding(db, finding_id=None, state="OPEN"):
     from history.database import DatabaseService
+    from history.project_repository import ProjectRepository
     fid = finding_id or f"finding-{uuid.uuid4().hex[:8]}"
     now = datetime.now(timezone.utc).isoformat()
     fp = uuid.uuid4().hex
+    pid = ProjectRepository(db).get_active_project_id()
     with db.get_connection() as conn:
         conn.execute(
-            "INSERT INTO findings (finding_id, fingerprint, hypothesis, locations, "
+            "INSERT INTO findings (finding_id, project_id, fingerprint, hypothesis, locations, "
             "supporting_evidence, contradicting_evidence, validation_method, validator_result, "
             "state, lineage, timestamps, schema_version, task_id, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (fid, fp, "Test hypothesis", "[]", "[]", "[]", None, None,
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (fid, pid, fp, "Test hypothesis", "[]", "[]", "[]", None, None,
              state, "{}", "{}", "1.0", None, now, now)
         )
     return fid
@@ -74,15 +78,17 @@ def _seed_finding(db, finding_id=None, state="OPEN"):
 
 def _seed_evidence(db, evidence_id=None, finding_id=None):
     from history.database import DatabaseService
+    from history.project_repository import ProjectRepository
     eid = evidence_id or f"ev-{uuid.uuid4().hex[:8]}"
     now = datetime.now(timezone.utc).isoformat()
+    pid = ProjectRepository(db).get_active_project_id()
     with db.get_connection() as conn:
         conn.execute(
-            "INSERT INTO evidence (evidence_id, task_id, run_id, agent_id, source_type, "
+            "INSERT INTO evidence (evidence_id, project_id, task_id, run_id, agent_id, source_type, "
             "raw_hash, canonical_hash, semantic_fingerprint, environment_fingerprint, "
             "exit_status, provenance, schema_version, finding_id, source_tool, timestamp, "
-            "semantic_identity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (eid, "task-t1", "run-r1", "agent-agy-01", "TOOL_OUTPUT",
+            "semantic_identity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (eid, pid, "task-t1", "run-r1", "agent-agy-01", "TOOL_OUTPUT",
              "abc123", "def456", "semfp", "envfp", 0, "{}", "1.0",
              finding_id, "verilator", now, "sem-id-1")
         )

@@ -122,12 +122,17 @@ def generate_verification_plan(
 @router.get("/plans")
 def list_verification_plans(
     limit: int = 50,
+    project_id: Optional[str] = None,
     session: SessionInfo = Depends(require_session)
 ):
     """Lists all verification plans (draft, active, completed, superseded)."""
     db = _get_db()
+    if not project_id:
+        from history.project_repository import ProjectRepository
+        proj_repo = ProjectRepository(db)
+        project_id = proj_repo.get_active_project_id()
     plan_repo = VerificationPlanRepository(db)
-    plans = plan_repo.list_all(limit=limit)
+    plans = plan_repo.list_all(limit=limit, project_id=project_id)
     return {"plans": [p.model_dump() for p in plans], "total": len(plans)}
 
 

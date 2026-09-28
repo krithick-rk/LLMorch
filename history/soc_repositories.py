@@ -37,14 +37,14 @@ class VerificationPlanRepository:
         with self.db.get_connection() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO verification_plans (
-                    plan_id, version, repository_path, repository_name, scope_description,
+                    plan_id, project_id, version, repository_path, repository_name, scope_description,
                     status, buckets_applicability, total_requirements, total_objectives,
                     total_work_packages, total_estimated_tokens, total_estimated_duration_seconds,
                     cost_tier, recommendation_mode, replan_reason, parent_plan_id,
                     created_by, created_at, approved_by, approved_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                plan.plan_id, plan.version, plan.repository_path, plan.repository_name, plan.scope_description,
+                plan.plan_id, plan.project_id, plan.version, plan.repository_path, plan.repository_name, plan.scope_description,
                 plan.status.value, json.dumps(plan.buckets_applicability), plan.total_requirements, plan.total_objectives,
                 plan.total_work_packages, plan.total_estimated_tokens, plan.total_estimated_duration_seconds,
                 plan.cost_tier.value, plan.recommendation_mode.value, plan.replan_reason, plan.parent_plan_id,
@@ -59,21 +59,38 @@ class VerificationPlanRepository:
                 return None
             return self._row_to_plan(row)
 
-    def get_latest_for_repository(self, repository_path: str) -> Optional[VerificationPlan]:
+    def get_latest_for_repository(self, repository_path: str, project_id: Optional[str] = None) -> Optional[VerificationPlan]:
         with self.db.get_connection() as conn:
-            row = conn.execute("""
-                SELECT * FROM verification_plans
-                WHERE repository_path = ?
-                ORDER BY version DESC, created_at DESC
-                LIMIT 1
-            """, (repository_path,)).fetchone()
+            if project_id:
+                row = conn.execute("""
+                    SELECT * FROM verification_plans
+                    WHERE repository_path = ? AND project_id = ?
+                    ORDER BY version DESC, created_at DESC
+                    LIMIT 1
+                """, (repository_path, project_id)).fetchone()
+            else:
+                row = conn.execute("""
+                    SELECT * FROM verification_plans
+                    WHERE repository_path = ?
+                    ORDER BY version DESC, created_at DESC
+                    LIMIT 1
+                """, (repository_path,)).fetchone()
             if not row:
                 return None
             return self._row_to_plan(row)
 
-    def list_all(self, limit: int = 50) -> List[VerificationPlan]:
+    def list_all(self, limit: int = 50, project_id: Optional[str] = None) -> List[VerificationPlan]:
         with self.db.get_connection() as conn:
-            rows = conn.execute("SELECT * FROM verification_plans ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+            if project_id:
+                rows = conn.execute(
+                    "SELECT * FROM verification_plans WHERE project_id = ? ORDER BY created_at DESC LIMIT ?",
+                    (project_id, limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM verification_plans ORDER BY created_at DESC LIMIT ?",
+                    (limit,)
+                ).fetchall()
             return [self._row_to_plan(r) for r in rows]
 
     def update_status(self, plan_id: str, status: PlanStatus, approved_by: Optional[str] = None) -> None:
@@ -89,6 +106,7 @@ class VerificationPlanRepository:
     def _row_to_plan(self, row) -> VerificationPlan:
         d = dict(row)
         return VerificationPlan(
+            project_id=d.get("project_id"),
             plan_id=d["plan_id"],
             version=d["version"],
             repository_path=d["repository_path"],

@@ -26,7 +26,7 @@ export const api = {
 
   // Run Control (Phase 9.4 state machine)
   runs: (params = {}) => req('/runs?' + new URLSearchParams(params)),
-  currentRun: () => req('/runs/current'),
+  currentRun: (params = {}) => req('/runs/current' + (Object.keys(params).length ? '?' + new URLSearchParams(params) : '')),
   runDetail: (id) => req(`/runs/${id}`),
   pauseRun: (id, body = {}) => req(`/runs/${id}/pause`, { method: 'POST', body: JSON.stringify(body) }),
   resumeRun: (id, body = {}) => req(`/runs/${id}/resume`, { method: 'POST', body: JSON.stringify(body) }),
@@ -170,7 +170,7 @@ export const api = {
   listSpecRequirements: (specId) => req(`/specifications/${specId}/requirements`),
 
   // Closure & Traceability
-  getClosure: (planId) => req(`/closure/${planId}`),
+  getClosure: (planId, params = {}) => req(planId ? `/closure/${planId}` : ('/closure?' + new URLSearchParams(params))),
   recordWaiver: (planId, body) => req(`/closure/${planId}/waiver`, { method: 'POST', body: JSON.stringify(body) }),
   recordGap: (planId, body) => req(`/closure/${planId}/gap`, { method: 'POST', body: JSON.stringify(body) }),
 
@@ -193,6 +193,8 @@ export const api = {
   createProject: (body) => req('/projects', { method: 'POST', body: JSON.stringify(body) }),
   activateProject: (id) => req(`/projects/${id}/activate`, { method: 'POST' }),
   projectDetail: (id) => req(`/projects/${id}`),
+  projectSummary: (id) => req(`/projects/${id}/summary`),
+  archiveProject: (id) => req(`/projects/${id}/archive`, { method: 'POST' }),
   projectBriefing: (id) => req(`/projects/${id}/briefing`),
   interpretInstruction: (id, body) => req(`/projects/${id}/interpret`, { method: 'POST', body: JSON.stringify(body) }),
 };

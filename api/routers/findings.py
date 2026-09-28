@@ -64,6 +64,7 @@ def _row_to_summary(row: dict) -> FindingSummary:
 
 @router.get("", response_model=PaginatedResponse)
 def list_findings(
+    project_id: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     state: Optional[str] = Query(None),
@@ -71,9 +72,16 @@ def list_findings(
     session: SessionInfo = Depends(require_session),
 ):
     db = _get_db()
+    from history.project_repository import ProjectRepository
+    proj_repo = ProjectRepository(db)
+    target_project_id = project_id or proj_repo.get_active_project_id()
+
     with db.get_connection() as conn:
         filters = []
         params: list = []
+        if target_project_id:
+            filters.append("project_id = ?")
+            params.append(target_project_id)
         if state:
             filters.append("state = ?")
             params.append(state)
@@ -86,36 +94,6 @@ def list_findings(
             f"SELECT * FROM findings {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
             params + [limit, offset],
         ).fetchall()
-
-        # Seed sample hardware finding if database has no findings yet
-        if total == 0 and not filters:
-            now = datetime.now(timezone.utc).isoformat()
-            sample_id = "FINDING-HW-AES-01"
-            conn.execute("""
-                INSERT OR IGNORE INTO findings (
-                    finding_id, task_id, hypothesis, state, severity,
-                    evidence_ids, artifact_ids, affected_locations, confidence,
-                    notes, created_at, updated_at, affected_analysis_unit, agent_id, role,
-                    model_id, supporting_evidence, contradicting_evidence, validation_state, reproducer_state
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                sample_id, "task-aes-01",
-                "AES round-key storage register retains sensitive key bits across soft resets without zeroization.",
-                "OPEN", "HIGH",
-                json.dumps(["EVID-AES-101", "EVID-AES-102"]),
-                json.dumps(["art-aes-trace-01"]),
-                json.dumps(["hw/ip/aes/rtl/aes_core.sv", "hw/ip/aes/rtl/aes_reg_top.sv"]),
-                0.92,
-                "Identified through static AST scan and formal property induction.",
-                now, now, "hw/ip/aes/", "agent-agy-01", "RTL Security Analyst",
-                "agy-deep-research",
-                json.dumps([{"evidence_id": "EVID-AES-101", "title": "Verilator assertion failure on soft reset sequence", "type": "SIMULATION_TRACE"}]),
-                json.dumps([]),
-                "UNVALIDATED", "DRAFT"
-            ))
-            conn.commit()
-            rows = conn.execute(f"SELECT * FROM findings WHERE finding_id = ?", (sample_id,)).fetchall()
-            total = len(rows)
 
     items = [_row_to_summary(dict(r)).model_dump() for r in rows]
     return PaginatedResponse(total=total, limit=limit, offset=offset, items=items)

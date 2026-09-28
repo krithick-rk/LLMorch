@@ -64,6 +64,7 @@ def _row_to_summary(r: dict) -> EvidenceSummary:
 
 @router.get("", response_model=PaginatedResponse)
 def list_evidence(
+    project_id: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     finding_id: Optional[str] = Query(None),
@@ -72,9 +73,16 @@ def list_evidence(
     session: SessionInfo = Depends(require_session),
 ):
     db = _get_db()
+    from history.project_repository import ProjectRepository
+    proj_repo = ProjectRepository(db)
+    target_project_id = project_id or proj_repo.get_active_project_id()
+
     with db.get_connection() as conn:
         filters = []
         params: list = []
+        if target_project_id:
+            filters.append("project_id = ?")
+            params.append(target_project_id)
         if finding_id:
             filters.append("finding_id = ?")
             params.append(finding_id)

@@ -37,7 +37,7 @@ const ALL_23_BUCKETS = [
   { id: 'ANALOG_MIXED_SIGNAL', name: 'Analog / Mixed-Signal Boundary Check', app: 'Not Applicable', obj: 0, ev: 0, state: 'Not Applicable' },
 ]
 
-export default function VerificationPlanPage({ planId, onNavigate }) {
+export default function VerificationPlanPage({ planId, onNavigate, activeProject }) {
   const [plans, setPlans] = useState([])
   const [selectedPlan, setSelectedPlan] = useState(null)
   const [workPackages, setWorkPackages] = useState([])
@@ -51,19 +51,27 @@ export default function VerificationPlanPage({ planId, onNavigate }) {
   const loadPlans = useCallback(async () => {
     try {
       setLoading(true)
-      const res = await api.listVerificationPlans()
+      const params = {}
+      if (activeProject?.project_id) params.project_id = activeProject.project_id
+      const res = await api.listVerificationPlans(params)
       const list = res.plans || []
       setPlans(list)
       const targetId = planId || (list.length > 0 ? list[0].plan_id : null)
       if (targetId) {
         await loadPlanDetail(targetId)
+      } else {
+        setSelectedPlan(null)
+        setWorkPackages([])
+        setObjectives([])
       }
     } catch (err) {
       console.error('Failed to load verification plans:', err)
+      setPlans([])
+      setSelectedPlan(null)
     } finally {
       setLoading(false)
     }
-  }, [planId])
+  }, [planId, activeProject?.project_id])
 
   const loadPlanDetail = async (id) => {
     try {

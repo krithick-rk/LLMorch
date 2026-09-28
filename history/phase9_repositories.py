@@ -1063,28 +1063,38 @@ class QuestionRepository:
         default_option: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
         question_id: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         qid = question_id or f"q-{uuid.uuid4().hex[:8]}"
         now = datetime.now(timezone.utc).isoformat()
         opts_json = json.dumps(options)
         ctx_json = json.dumps(context or {})
 
+        if not project_id:
+            try:
+                from history.project_repository import ProjectRepository
+                proj_repo = ProjectRepository(self.db)
+                project_id = proj_repo.get_active_project_id()
+            except Exception:
+                project_id = None
+
         with self.db.get_connection() as conn:
             conn.execute("""
                 INSERT INTO questions (
                     question_id, run_id, task_id, attempt_id, agent_id,
                     status, reason, question, options, default_option,
-                    created_at, answered_at, answer, analyst_id, context
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, answered_at, answer, analyst_id, context, project_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 qid, run_id, task_id, attempt_id, agent_id,
                 "QUESTION_PENDING", reason, question, opts_json, default_option,
-                now, None, None, "analyst", ctx_json
+                now, None, None, "analyst", ctx_json, project_id
             ))
             conn.commit()
 
         return {
             "question_id": qid,
+            "project_id": project_id,
             "run_id": run_id,
             "task_id": task_id,
             "attempt_id": attempt_id,
@@ -1116,11 +1126,15 @@ class QuestionRepository:
         run_id: Optional[str] = None,
         task_id: Optional[str] = None,
         status: Optional[str] = None,
+        project_id: Optional[str] = None,
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
         with self.db.get_connection() as conn:
             filters = []
             params = []
+            if project_id:
+                filters.append("project_id = ?")
+                params.append(project_id)
             if run_id:
                 filters.append("run_id = ?")
                 params.append(run_id)

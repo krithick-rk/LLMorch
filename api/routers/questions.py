@@ -32,6 +32,8 @@ def _get_db() -> DatabaseService:
     return DatabaseService(get_db_path())
 
 
+from history.project_repository import ProjectRepository
+
 def _to_detail(d: dict) -> QuestionDetailModel:
     raw_options = d.get("options") or []
     options = []
@@ -43,6 +45,7 @@ def _to_detail(d: dict) -> QuestionDetailModel:
 
     return QuestionDetailModel(
         question_id=d["question_id"],
+        project_id=d.get("project_id"),
         run_id=d.get("run_id"),
         task_id=d.get("task_id"),
         attempt_id=d.get("attempt_id"),
@@ -62,6 +65,7 @@ def _to_detail(d: dict) -> QuestionDetailModel:
 
 @router.get("", response_model=PaginatedResponse)
 def list_questions(
+    project_id: Optional[str] = Query(None),
     run_id: Optional[str] = Query(None),
     task_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
@@ -69,10 +73,19 @@ def list_questions(
     offset: int = Query(0, ge=0),
     session: SessionInfo = Depends(require_session),
 ):
-    """Lists questions with optional filtering by run, task, or status."""
+    """Lists questions with strict project isolation."""
     db = _get_db()
+    proj_repo = ProjectRepository(db)
+    target_project_id = project_id or proj_repo.get_active_project_id()
+
     repo = QuestionRepository(db)
-    all_q = repo.list_questions(run_id=run_id, task_id=task_id, status=status, limit=1000)
+    all_q = repo.list_questions(
+        project_id=target_project_id,
+        run_id=run_id,
+        task_id=task_id,
+        status=status,
+        limit=1000
+    )
     total = len(all_q)
     paged = all_q[offset: offset + limit]
     items = [_to_detail(q).model_dump() for q in paged]
@@ -98,12 +111,16 @@ async def create_question(
     request: CreateQuestionRequestModel,
     session: SessionInfo = Depends(require_session),
 ):
-    """Creates a new human-in-the-loop analyst question."""
+    """Creates a new human-in-the-loop analyst question attached to the active project."""
     db = _get_db()
+    proj_repo = ProjectRepository(db)
+    p_id = request.project_id or proj_repo.get_active_project_id()
+
     repo = QuestionRepository(db)
     options_data = [opt.model_dump() for opt in request.options]
 
     created = repo.create_question(
+        project_id=p_id,
         reason=request.reason,
         question=request.question,
         options=options_data,
@@ -117,11 +134,13 @@ async def create_question(
 
     detail = _to_detail(created)
 
-    # Broadcast question created event
+    # Broadcast question created event with project_id
     await event_manager.broadcast(
         event_type="QUESTION_CREATED",
         entity_type="question",
         entity_id=created["question_id"],
+        project_id=p_id,
+        run_id=request.run_id,
         payload=detail.model_dump(),
     )
 

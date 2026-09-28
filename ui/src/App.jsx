@@ -885,15 +885,17 @@ function HypothesisPanelPage({ refreshSignal }) {
 
 // ─── Page: Evidence Viewer ────────────────────────────────────────────────────
 
-function EvidenceViewerPage({ refreshSignal }) {
+function EvidenceViewerPage({ refreshSignal, activeProject }) {
   const [list, setList] = useState(null)
   const [selected, setSelected] = useState(null)
   const [detail, setDetail] = useState(null)
 
   const load = useCallback(async () => {
-    const e = await api.evidence({ limit: 50 })
+    const params = { limit: 50 }
+    if (activeProject?.project_id) params.project_id = activeProject.project_id
+    const e = await api.evidence(params)
     setList(e)
-  }, [])
+  }, [activeProject?.project_id])
 
   useEffect(() => { load() }, [load, refreshSignal])
 
@@ -1069,7 +1071,7 @@ function TimelinePage({ refreshSignal }) {
 
 // ─── Page: Finding Dossier ────────────────────────────────────────────────────
 
-function FindingDossierPage({ refreshSignal }) {
+function FindingDossierPage({ refreshSignal, activeProject }) {
   const [findings, setFindings] = useState(null)
   const [selected, setSelected] = useState(null)
   const [evidence, setEvidence] = useState(null)
@@ -1080,9 +1082,11 @@ function FindingDossierPage({ refreshSignal }) {
   const [feedbackMsg, setFeedbackMsg] = useState('')
 
   const load = useCallback(async () => {
-    const f = await api.findings({ limit: 50 })
+    const params = { limit: 50 }
+    if (activeProject?.project_id) params.project_id = activeProject.project_id
+    const f = await api.findings(params)
     setFindings(f)
-  }, [])
+  }, [activeProject?.project_id])
 
   useEffect(() => { load() }, [load, refreshSignal])
 
@@ -1331,14 +1335,14 @@ function GlobalIntelligencePage({ refreshSignal }) {
 
 // ─── App Shell ────────────────────────────────────────────────────────────────
 
-// Task-Oriented Navigation Hierarchy (Section 9 & 32)
+// Task-Oriented Navigation Hierarchy (Requirement 36)
 const NAV_SECTIONS = [
   {
-    label: 'WORKSPACE',
+    label: 'PROJECT',
     pages: [
       { id: 'home',               label: 'Project Home',      icon: '🏠' },
-      { id: 'master',             label: 'Master Session',    icon: '⬡' },
       { id: 'target-repo',        label: 'Repository',        icon: '⊙' },
+      { id: 'master',             label: 'Master Session',    icon: '⬡' },
       { id: 'verification-plan',  label: 'Verification Plan', icon: '📋' },
     ],
   },
@@ -1347,24 +1351,23 @@ const NAV_SECTIONS = [
     pages: [
       { id: 'tasks',              label: 'Tasks',             icon: '⚡' },
       { id: 'runs',               label: 'Runs',              icon: '⏱' },
-      { id: 'tools',              label: 'Tools',             icon: '◧' },
       { id: 'agents',             label: 'Agents',            icon: '◉' },
+      { id: 'tools',              label: 'Tools',             icon: '◧' },
     ],
   },
   {
     label: 'RESULTS',
     pages: [
       { id: 'evidence',           label: 'Evidence',          icon: '◈' },
-      { id: 'closure',            label: 'Coverage & Closure',icon: '🛡️' },
+      { id: 'closure',            label: 'Coverage',          icon: '🛡️' },
       { id: 'dossier',            label: 'Findings',          icon: '▤' },
-      { id: 'policies',           label: 'Policies',          icon: '📜' },
     ],
   },
   {
     label: 'REVIEW',
     pages: [
-      { id: 'decisions',          label: 'Decisions & Review',icon: '⚖' },
-      { id: 'timeline',           label: 'Execution History', icon: '⊡' },
+      { id: 'decisions',          label: 'Decisions',         icon: '⚖' },
+      { id: 'timeline',           label: 'History',           icon: '⊡' },
     ],
   },
   {
@@ -1621,6 +1624,10 @@ export default function App() {
   const [elapsed, setElapsed] = useState(null)
 
   const handleEvent = useCallback((evt) => {
+    // Project isolation (Requirement 9 & 39): reject events belonging to other projects
+    if (evt.project_id && activeProject?.project_id && evt.project_id !== activeProject.project_id) {
+      return
+    }
     if (evt.type === 'RESYNC' || evt.event_type === 'RESYNC') {
       setRefreshSignal(s => s + 1)
       return
@@ -1645,24 +1652,30 @@ export default function App() {
          'MODEL_SWITCH_COMPLETED','TOKEN_USAGE_RECORDED','TOKEN_BUDGET_EXHAUSTED'].includes(evt.event_type)) {
       setRefreshSignal(s => s + 1)
     }
-  }, [])
+  }, [activeProject?.project_id])
 
   const fetchCurrentRun = useCallback(async () => {
     try {
-      const run = await api.currentRun()
+      const pId = activeProject?.project_id
+      const run = await api.currentRun(pId ? { project_id: pId } : {})
       setCurrentRun(run)
-      // Fetch run detail for counts
-      const detail = await api.runDetail(run.run_id)
-      setRunCounts({
-        tasks: detail.total_tasks,
-        active_tasks: detail.active_tasks,
-        findings: detail.findings_count,
-        tokens: 0,
-      })
+      if (run?.run_id) {
+        // Fetch run detail for counts
+        const detail = await api.runDetail(run.run_id)
+        setRunCounts({
+          tasks: detail.total_tasks || 0,
+          active_tasks: detail.active_tasks || 0,
+          findings: detail.findings_count || 0,
+          tokens: 0,
+        })
+      } else {
+        setRunCounts({ tasks: 0, active_tasks: 0, findings: 0, tokens: 0 })
+      }
     } catch {
       setCurrentRun(null)
+      setRunCounts({ tasks: 0, active_tasks: 0, findings: 0, tokens: 0 })
     }
-  }, [])
+  }, [activeProject?.project_id])
 
   useEffect(() => {
     fetchCurrentRun()
@@ -1758,35 +1771,34 @@ export default function App() {
   }
 
   const renderPage = () => {
-    const props = { refreshSignal, onNavigate: setPage, currentRun }
+    const props = { refreshSignal, onNavigate: setPage, currentRun, activeProject }
     const entId = selectedEntity?.entityId || selectedEntity?.id
     switch (page) {
       case 'home':         return <ProjectHomePage activeProject={activeProject} onNavigate={setPage} onOpenCreateTask={() => setIsCreateTaskOpen(true)} {...props} />
       case 'master':       return <MasterSessionPage activeProject={activeProject} onNavigate={setPage} {...props} />
       case 'overview':     return <RunOverviewPage {...props} />
-      case 'tasks':        return <TasksPage onOpenCreateTask={() => setIsCreateTaskOpen(true)} {...props} />
-      case 'runs':         return <RunHistoryPage {...props} />
-      case 'run':          return <RunDetailPage runId={entId} {...props} />
-      case 'task':         return <TaskDetailPage taskId={entId} isAttempt={selectedEntity?.isAttempt} {...props} />
-      case 'workflow':     return <AgentWorkflowPage {...props} />
-      case 'target-repo':  return <TargetRepositoryPage repoId={entId} {...props} />
-      case 'tools':        return <ToolsPage selectedToolName={entId} {...props} />
-      case 'dag':          return <TaskDAGPage {...props} />
-      case 'repo':         return <RepositoryGraphPage {...props} />
-      case 'agents':       return <AgentsPage {...props} />
-      case 'decisions':    return <DecisionsPage {...props} />
-      case 'question':     return <DecisionsPage {...props} />
-      case 'hypothesis':   return <HypothesisPanelPage {...props} />
-      case 'evidence':     return <EvidenceViewerPage selectedEvidenceId={entId} {...props} />
-      case 'timeline':     return <TimelinePage {...props} />
-      case 'dossier':      return <FindingDossierPage selectedFindingId={entId} {...props} />
-      case 'intel':        return <GlobalIntelligencePage {...props} />
-      case 'verification-plan': return <VerificationPlanPage planId={entId} {...props} />
-      case 'context-fabric':    return <ContextFabricPage {...props} />
-      case 'closure':           return <ClosurePage planId={entId} {...props} />
-      case 'specifications':    return <SpecificationsPage specId={entId} {...props} />
-      case 'policies':          return <PoliciesPage policyId={entId} {...props} />
-      case 'settings':     return <SettingsPage {...props} />
+      case 'tasks':        return <TasksPage activeProject={activeProject} onOpenCreateTask={() => setIsCreateTaskOpen(true)} {...props} />
+      case 'runs':         return <RunHistoryPage activeProject={activeProject} {...props} />
+      case 'run':          return <RunDetailPage runId={entId} activeProject={activeProject} {...props} />
+      case 'task':         return <TaskDetailPage taskId={entId} isAttempt={selectedEntity?.isAttempt} activeProject={activeProject} {...props} />
+      case 'workflow':     return <AgentWorkflowPage activeProject={activeProject} {...props} />
+      case 'target-repo':  return <TargetRepositoryPage repoId={entId} activeProject={activeProject} {...props} />
+      case 'tools':        return <ToolsPage selectedToolName={entId} activeProject={activeProject} {...props} />
+      case 'dag':          return <TaskDAGPage activeProject={activeProject} {...props} />
+      case 'repo':         return <RepositoryGraphPage activeProject={activeProject} {...props} />
+      case 'agents':       return <AgentsPage activeProject={activeProject} {...props} />
+      case 'decisions':    return <DecisionsPage activeProject={activeProject} {...props} />
+      case 'question':     return <DecisionsPage activeProject={activeProject} {...props} />
+      case 'hypothesis':   return <HypothesisPanelPage activeProject={activeProject} {...props} />
+      case 'evidence':     return <EvidenceViewerPage selectedEvidenceId={entId} activeProject={activeProject} {...props} />
+      case 'timeline':     return <TimelinePage activeProject={activeProject} {...props} />
+      case 'dossier':      return <FindingDossierPage selectedFindingId={entId} activeProject={activeProject} {...props} />
+      case 'intel':        return <GlobalIntelligencePage activeProject={activeProject} {...props} />
+      case 'verification-plan': return <VerificationPlanPage planId={entId} activeProject={activeProject} {...props} />
+      case 'context-fabric':    return <ContextFabricPage activeProject={activeProject} {...props} />
+      case 'closure':           return <ClosurePage planId={entId} activeProject={activeProject} {...props} />
+      case 'specifications':    return <SpecificationsPage specId={entId} activeProject={activeProject} {...props} />
+      case 'settings':     return <SettingsPage activeProject={activeProject} {...props} />
       default:             return <ProjectHomePage activeProject={activeProject} onNavigate={setPage} onOpenCreateTask={() => setIsCreateTaskOpen(true)} {...props} />
     }
   }
@@ -1816,29 +1828,24 @@ export default function App() {
           />
         </div>
 
-        {/* Run identity */}
-        {currentRun ? (
-          <div className="header-run-id">
-            <div className="header-run-name truncate">
-              {currentRun.repository_name || 'No repository selected'}
-            </div>
-            <div className="header-run-id-text">{currentRun.run_id}</div>
+        {/* Target Directory Strip (Requirement 33) */}
+        <div className="header-run-id" style={{ maxWidth: 220 }}>
+          <div className="header-run-name truncate" title={activeProject?.target_directory || 'No target attached'}>
+            🎯 {activeProject?.target_directory || 'No target attached'}
           </div>
-        ) : (
-          <div className="header-run-id">
-            <div className="header-run-name" style={{color:'var(--text-muted)'}}>No active run</div>
-            <div className="header-run-id-text">—</div>
+          <div className="header-run-id-text">
+            {currentRun?.run_id || 'IDLE'}
           </div>
-        )}
+        </div>
 
-        {/* Metrics strip */}
+        {/* Metrics strip (Requirement 15, 33, 34) */}
         <div className="header-metrics">
           {/* Run state */}
           <div className="hm-item">
-            <span className="hm-label">Status</span>
+            <span className="hm-label">State</span>
             <span className={`hm-value flex items-center gap-1 ${stateClass}`}>
-              <RunStateDot state={runState} />
-              {runState || '—'}
+              <RunStateDot state={runState || 'IDLE'} />
+              {runState || 'IDLE'}
             </span>
           </div>
 
@@ -1857,7 +1864,7 @@ export default function App() {
               {runCounts.active_tasks > 0 ? (
                 <><span className="text-blue">{runCounts.active_tasks}</span>
                 <span style={{color:'var(--text-muted)'}}> / {runCounts.tasks}</span></>
-              ) : (runCounts.tasks || '—')}
+              ) : (runCounts.tasks || '0')}
             </span>
           </div>
 
@@ -1865,7 +1872,7 @@ export default function App() {
           <div className="hm-item">
             <span className="hm-label">Findings</span>
             <span className={`hm-value ${runCounts.findings > 0 ? 'text-amber' : ''}`}>
-              {runCounts.findings || '—'}
+              {runCounts.findings || '0'}
             </span>
           </div>
 

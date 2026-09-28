@@ -39,7 +39,7 @@ const AGENTS = ['ALL', 'AGY', 'Codex', 'supervisor']
 const TOOLS = ['ALL', 'Yosys', 'Verilator', 'Cocotb', 'Surfer', 'Sby', 'Z3']
 const STATUSES = ['ALL', 'RUNNING', 'COMPLETED', 'FAILED', 'STOPPED', 'QUEUED']
 
-export default function TasksPage({ refreshSignal, onNavigate, onOpenCreateTask }) {
+export default function TasksPage({ refreshSignal, onNavigate, onOpenCreateTask, activeProject }) {
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -57,15 +57,18 @@ export default function TasksPage({ refreshSignal, onNavigate, onOpenCreateTask 
   const loadTasks = useCallback(async () => {
     try {
       setLoading(true)
-      const res = await api.tasks({ limit: 250 })
+      const params = { limit: 250 }
+      if (activeProject?.project_id) params.project_id = activeProject.project_id
+      const res = await api.tasks(params)
       setTasks(res.items || [])
       setError(null)
     } catch (err) {
       setError(err.message || 'Failed to load task queue')
+      setTasks([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [activeProject?.project_id])
 
   useEffect(() => {
     loadTasks()

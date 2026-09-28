@@ -26,7 +26,7 @@ function safeStr(val, fallback = '') {
   return String(val)
 }
 
-export default function DecisionsPage({ refreshSignal, onNavigate }) {
+export default function DecisionsPage({ activeProject, refreshSignal, onNavigate }) {
   const [questions, setQuestions] = useState([])
   const [selectedQuestion, setSelectedQuestion] = useState(null)
   const [selectedOption, setSelectedOption] = useState(null)
@@ -40,71 +40,26 @@ export default function DecisionsPage({ refreshSignal, onNavigate }) {
   const loadQuestions = useCallback(async () => {
     try {
       setLoading(true)
-      const res = await api.questions().catch(() => ({ items: [] }))
-      const items = (res.items && res.items.length > 0) ? res.items : [
-        {
-          question_id: 'q-dbg-01',
-          question: 'Is secure debug verification applicable to this target SoC?',
-          target_ip: 'debug_auth.sv',
-          context: 'Target SoC contains a JTAG TAP interface linked to lifecycle controller. If debug is unlocked in PROD state, security assets (keys, memory encryption engines) become readable. Verification plan must determine whether to execute full boundary lock verification or waive non-applicable functional tests.',
-          why_this_matters: 'Executing exhaustive formal verification on debug unlock invariants requires ~85k tokens and 6 SMT worker threads. If debug interface is physically disconnected or disabled by e-fuse in production, these objectives can be safely waived.',
-          impact_statement: 'Choosing Applicable adds 3 high-priority work packages to the Verification Plan and gates final closure. Waiving drops verification time by ~35 minutes.',
-          evidence: [
-            { source: 'TRM Section 8.4 (Debug Security & Lifecycle)', path: 'docs/trm/section_8_debug.md', excerpt: 'Section 8.4: Debug access shall require cryptographic mutual challenge-response authentication when lifecycle state is PROD.' },
-            { source: 'RTL: debug_auth.sv (JTAG TAP interface)', path: 'rtl/debug/debug_auth.sv', excerpt: 'module debug_auth(input logic clk, input logic rst_n, input jtag_tap_t tap_in, output logic auth_ok);' },
-            { source: 'Design Requirement: REQ-SEC-DBG-009', path: 'specs/sec_reqs.hjson', excerpt: 'REQ-SEC-DBG-009: Debug clock domain crossing must isolate scan chains on reset assertion.' },
-            { source: 'Architecture Specification: Sec 4.2', path: 'docs/arch/reset_controller.md', excerpt: 'Reset manager provides separate rst_dbg_n for debug domain with glitch filter.' },
-            { source: 'Security Target Document (Common Criteria)', path: 'docs/cc/asec_st.pdf', excerpt: 'OE.DEBUG: The environment shall restrict physical and logical access to JTAG pins in field deployment.' }
-          ],
-          options: [
-            {
-              id: 'applicable',
-              label: 'Applicable (Enforce Full Verification)',
-              is_recommended: true,
-              meaning: 'Treat debug interface as security-critical attack surface',
-              impact: 'Adds 3 verification objectives to Debug & Trace bucket; dispatches SMT formal solver for TAP unlock invariants',
-              affected_tasks: ['WP-04: Debug unlock formal model', 'WP-05: JTAG glitch injection', 'WP-06: OTP lock gate'],
-              cost_estimate: '+28k tokens, ~8 mins'
-            },
-            {
-              id: 'not_applicable',
-              label: 'Not Applicable / Waived',
-              meaning: 'Waive debug verification for this tape-out / simulation tier',
-              impact: 'Excludes Debug & Trace bucket from closure calculations; marks objectives as WAIVED_BY_ANALYST',
-              affected_tasks: ['WP-04 waived', 'WP-05 waived'],
-              cost_estimate: '0 tokens, instant'
-            },
-            {
-              id: 'functional_only',
-              label: 'Functional Only (No Security Gate)',
-              meaning: 'Verify basic scan chain continuity without cryptographic challenge testing',
-              impact: 'Runs lightweight lint and connectivity tests without invoking formal security provers',
-              affected_tasks: ['WP-04-light: Scan chain continuity'],
-              cost_estimate: '+4k tokens, ~1 min'
-            },
-            {
-              id: 'unknown_deeper_probe',
-              label: 'Unknown / Require Deeper AST Probe',
-              meaning: 'Dispatch lightweight exploratory analysis before committing to plan gate',
-              impact: 'Dispatches AST structural scan to verify whether debug_auth is synthesized in top-level netlist',
-              affected_tasks: ['Probe-01: Top-level pinmux bind check'],
-              cost_estimate: '+3k tokens, ~30s'
-            }
-          ],
-          status: 'PENDING',
-          inquirer: 'Supervisor / Orchestrator Agent (Phase 10)',
-          created_at: new Date().toISOString()
-        }
-      ]
+      const params = {}
+      if (activeProject?.project_id) {
+        params.project_id = activeProject.project_id
+      }
+      const res = await api.questions(params).catch(() => ({ items: [] }))
+      const items = res.items || []
       setQuestions(items)
-      if (items.length > 0 && !selectedQuestion) {
-        setSelectedQuestion(items[0])
-        setSelectedOption(items[0].options?.[0]?.id || 'applicable')
+      if (items.length > 0) {
+        const first = items[0]
+        setSelectedQuestion(first)
+        const firstOpt = Array.isArray(first.options) && first.options.length > 0 ? (first.options[0]?.id || first.options[0]) : null
+        setSelectedOption(firstOpt)
+      } else {
+        setSelectedQuestion(null)
+        setSelectedOption(null)
       }
     } finally {
       setLoading(false)
     }
-  }, [selectedQuestion])
+  }, [activeProject?.project_id])
 
   useEffect(() => {
     loadQuestions()
@@ -562,8 +517,22 @@ ${ev.excerpt || '// Authoritative requirement verified in repository manifest.'}
             </div>
           </div>
         ) : (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300, color: 'var(--text-muted)' }}>
-            Select an inquiry from the queue on the left to review and decide.
+          <div className="panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 400, color: 'var(--text-muted)', padding: 32, textAlign: 'center' }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>⚖</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-bright)', marginBottom: 8 }}>
+              No Pending Analyst Decisions
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 480, lineHeight: 1.5, marginBottom: 20 }}>
+              Project <strong>{activeProject?.name || 'Active Project'}</strong> has 0 open decisions. When verification supervisors, formal provers, or watchdogs encounter security trade-offs or gating questions, they will appear here with complete engineering evidence.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => onNavigate('tasks')}>
+                View Task Queue
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={() => onNavigate('master')}>
+                Open Master Session
+              </button>
+            </div>
           </div>
         )}
 

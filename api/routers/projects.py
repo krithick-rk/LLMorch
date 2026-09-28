@@ -26,6 +26,7 @@ def _get_project_repo() -> ProjectRepository:
 
 class ProjectCreateRequest(BaseModel):
     name: Optional[str] = Field(None, description="Optional project name")
+    project_name: Optional[str] = Field(None, description="Optional project name alias")
     target_directory: Optional[str] = Field(None, description="Target repository filesystem directory")
 
 
@@ -151,7 +152,7 @@ def create_project(req: ProjectCreateRequest):
     }
 
     project = repo.create_project(
-        name=req.name,
+        name=req.project_name or req.name,
         target_directory=target_dir,
         status="READY" if intake_data["is_eda_soc"] else "INITIALIZED",
         metadata=metadata,
@@ -167,6 +168,24 @@ def get_active_project():
     if not active:
         raise HTTPException(status_code=404, detail="No active project found")
     return active
+
+
+@router.get("/api/projects/{project_id}/summary", tags=["projects"])
+def get_project_summary(project_id: str):
+    repo = _get_project_repo()
+    p = repo.get_project(project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+    return repo.get_project_summary(project_id)
+
+
+@router.post("/api/projects/{project_id}/archive", tags=["projects"])
+def archive_project(project_id: str):
+    repo = _get_project_repo()
+    p = repo.archive_project(project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+    return p
 
 
 @router.post("/api/projects/{project_id}/activate", tags=["projects"])

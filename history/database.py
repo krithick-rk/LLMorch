@@ -1452,8 +1452,58 @@ class DatabaseService:
                 except Exception:
                     pass
 
+            # Strict Project Isolation Migrations
+            _project_scoped_tables = [
+                "tasks", "runs", "questions", "analyst_questions", "analyst_instructions",
+                "task_attempts", "findings", "evidence", "artifacts", "events",
+                "verification_plans", "work_packages", "closure_snapshots", "coverage_items",
+                "gaps", "tool_executions", "agent_role_assignments", "chat_messages",
+                "run_control_events", "repository_snapshots", "analysis_units",
+                "specifications", "requirements", "policy_candidates", "target_repositories",
+                "token_usage", "token_budgets"
+            ]
+            for tbl in _project_scoped_tables:
+                try:
+                    cursor.execute(f"ALTER TABLE {tbl} ADD COLUMN project_id TEXT")
+                except Exception:
+                    pass
+
+            # Ensure Legacy/Unassigned Archive project exists
+            try:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS projects (
+                        project_id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        target_directory TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'INITIALIZED',
+                        is_active INTEGER NOT NULL DEFAULT 0,
+                        metadata TEXT NOT NULL DEFAULT '{}',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+                cursor.execute("""
+                    INSERT OR IGNORE INTO projects (
+                        project_id, name, target_directory, status, is_active, metadata, created_at, updated_at
+                    ) VALUES (
+                        'proj-legacy-unassigned', 'Legacy Unassigned Archive', '/dev/null',
+                        'ARCHIVED', 0, '{"description": "Archive of historical data prior to project isolation"}',
+                        ?, ?
+                    )
+                """, (now_iso, now_iso))
+
+                # Backfill historical records where project_id IS NULL to legacy archive
+                for tbl in _project_scoped_tables:
+                    try:
+                        cursor.execute(f"UPDATE {tbl} SET project_id = 'proj-legacy-unassigned' WHERE project_id IS NULL")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
             conn.commit()
-            logger.info("Database schema initialized successfully (SoC Verification tables verified).")
+            logger.info("Database schema initialized successfully (SoC Verification tables & Project Isolation verified).")
 
 
 def get_db_path() -> str:

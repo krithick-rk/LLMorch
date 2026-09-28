@@ -38,16 +38,23 @@ class ConnectionManager:
         entity_type: str | None = None,
         entity_id: str | None = None,
         payload: Dict[str, Any] | None = None,
+        project_id: str | None = None,
+        run_id: str | None = None,
     ) -> RealtimeEvent:
         async with self._lock:
             self._sequence += 1
             seq = self._sequence
+
+        p_id = project_id or (payload.get("project_id") if payload else None)
+        r_id = run_id or (payload.get("run_id") if payload else None)
 
         event = RealtimeEvent(
             event_id=f"evt-{uuid.uuid4().hex[:12]}",
             event_type=event_type,
             timestamp=datetime.now(timezone.utc),
             sequence=seq,
+            project_id=p_id,
+            run_id=r_id,
             entity_type=entity_type,
             entity_id=entity_id,
             payload=payload or {},

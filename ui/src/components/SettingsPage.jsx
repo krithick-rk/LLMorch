@@ -5,8 +5,8 @@ function Mono({ children }) {
   return <span className="mono">{children}</span>;
 }
 
-export function SettingsPage({ refreshSignal }) {
-  const [activeTab, setActiveTab] = useState('agents');
+export function SettingsPage({ refreshSignal, activeProject }) {
+  const [activeTab, setActiveTab] = useState('project');
   const [settings, setSettings] = useState(null);
   const [models, setModels] = useState([]);
   const [agents, setAgents] = useState([]);
@@ -64,7 +64,7 @@ export function SettingsPage({ refreshSignal }) {
     try {
       const updated = await api.updateSettings(draft);
       setSettings(updated);
-      setMessage('Settings successfully saved to control plane!');
+      setMessage('Settings successfully saved!');
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
       setError(err.message || 'Failed to save settings');
@@ -81,8 +81,8 @@ export function SettingsPage({ refreshSignal }) {
     <div>
       <div className="page-header">
         <div>
-          <div className="page-title">⚙️ Control Plane Settings & Policy</div>
-          <div className="page-subtitle">Configure elastic agents, models, token accounting, and execution scope</div>
+          <div className="page-title">⚙️ Settings</div>
+          <div className="page-subtitle">Application preferences, project defaults, agent configuration, and execution tools</div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button className="btn btn-secondary btn-sm" onClick={loadSettings} disabled={saving}>↺ Reload</button>
@@ -104,15 +104,15 @@ export function SettingsPage({ refreshSignal }) {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Tabs (Requirement 18 & 19) */}
       <div className="settings-tabs">
         {[
+          { id: 'project', label: '📁 Project Defaults' },
+          { id: 'application', label: '🎨 Application' },
           { id: 'agents', label: '🤖 Agents', count: agents.length },
           { id: 'models', label: '🧠 Models', count: models.length },
-          { id: 'budgets', label: '🪙 Token Budgets' },
-          { id: 'execution', label: '⚡ Execution & Scope' },
-          { id: 'security', label: '🔐 Security & Secrets' },
-          { id: 'layout', label: '📐 Layout & Workspace' },
+          { id: 'tools', label: '🛠️ Tools & Budgets' },
+          { id: 'security', label: '🔒 Safeguards & Security' },
         ].map(tab => (
           <div
             key={tab.id}
@@ -123,6 +123,71 @@ export function SettingsPage({ refreshSignal }) {
           </div>
         ))}
       </div>
+
+      {/* Tab: Project Defaults (Requirement 19) */}
+      {activeTab === 'project' && (
+        <div className="settings-card">
+          <div className="card-title mb-16">Active Project Configuration</div>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+            Settings here are strictly scoped to the active project ({activeProject?.project_name || 'Current Project'}) and do not leak into other projects.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxWidth: '640px', marginBottom: '24px' }}>
+            <div className="settings-row">
+              <div className="settings-info">
+                <div className="settings-name">Target Directory (Immutable)</div>
+                <div className="settings-desc">One Project = One Target Repository</div>
+              </div>
+              <Mono>{activeProject?.target_directory || 'No directory attached'}</Mono>
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-info">
+                <div className="settings-name">Project Identifier</div>
+                <div className="settings-desc">Unique database and telemetry scope</div>
+              </div>
+              <Mono>{activeProject?.project_id || '—'}</Mono>
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-info">
+                <div className="settings-name">Default Agent for Tasks</div>
+                <div className="settings-desc">Preferred agent for initial task generation and verification</div>
+              </div>
+              <select
+                className="form-control"
+                style={{ width: '180px' }}
+                value={draft.agents?.preferred_agent || 'agent-agy-01'}
+                onChange={e => setDraft(prev => ({
+                  ...prev,
+                  agents: { ...prev.agents, preferred_agent: e.target.value }
+                }))}
+              >
+                <option value="agent-agy-01">Google AGY (Default)</option>
+                <option value="agent-codex-01">Codex CLI</option>
+                <option value="supervisor">Supervisor</option>
+              </select>
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-info">
+                <div className="settings-name">Project Run Token Budget</div>
+                <div className="settings-desc">Maximum tokens before execution pause</div>
+              </div>
+              <input
+                type="number"
+                className="form-control"
+                style={{ width: '140px' }}
+                value={draft.token_budgets?.default_run_budget_tokens || 150000}
+                onChange={e => setDraft(prev => ({
+                  ...prev,
+                  token_budgets: { ...prev.token_budgets, default_run_budget_tokens: parseInt(e.target.value, 10) || 100000 }
+                }))}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tab: Agents */}
       {activeTab === 'agents' && (
@@ -271,10 +336,11 @@ export function SettingsPage({ refreshSignal }) {
         </div>
       )}
 
-      {/* Tab: Budgets */}
-      {activeTab === 'budgets' && (
-        <div className="settings-card">
-          <div className="card-title mb-16">Token Budget Controls</div>
+      {/* Tab: Tools & Budgets (Requirement 18) */}
+      {activeTab === 'tools' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="settings-card">
+            <div className="card-title mb-16">Token Budget Controls</div>
 
           <div className="settings-row">
             <div className="settings-info">
@@ -329,10 +395,8 @@ export function SettingsPage({ refreshSignal }) {
             />
           </div>
         </div>
-      )}
 
-      {/* Tab: Execution & Scope */}
-      {activeTab === 'execution' && (
+        {/* Execution & Scope */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div className="settings-card">
             <div className="card-title mb-16">Execution Policies</div>
@@ -404,6 +468,7 @@ export function SettingsPage({ refreshSignal }) {
             </div>
           </div>
         </div>
+      </div>
       )}
 
       {/* Tab: Security */}
@@ -435,8 +500,8 @@ export function SettingsPage({ refreshSignal }) {
         </div>
       )}
 
-      {/* Tab: Layout */}
-      {activeTab === 'layout' && (
+      {/* Tab: Application */}
+      {activeTab === 'application' && (
         <div className="settings-card">
           <div className="card-title mb-16">Workspace Layout & Panel Dimensions</div>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>

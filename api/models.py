@@ -36,6 +36,7 @@ class RunSummary(BaseModel):
     task_id: str
     agent_id: str
     status: str
+    project_id: Optional[str] = None
     run_state: str = "RUNNING"
     stage: Optional[str] = "REPOSITORY_ANALYSIS"
     repository_name: Optional[str] = None
@@ -68,6 +69,7 @@ class RunControlResponse(BaseModel):
 
 class RunStateDetail(BaseModel):
     run_id: str
+    project_id: Optional[str] = None
     run_state: str
     status: str
     stage: Optional[str] = "REPOSITORY_ANALYSIS"
@@ -90,6 +92,7 @@ class RunStateDetail(BaseModel):
 
 class TaskSummary(BaseModel):
     task_id: str
+    project_id: Optional[str] = None
     workflow_id: Optional[str] = None
     parent_task_id: Optional[str] = None
     objective: str
@@ -135,7 +138,10 @@ class TaskDetail(TaskSummary):
 
 
 class TaskCreateRequest(BaseModel):
-    objective: str
+    objective: Optional[str] = None
+    title: Optional[str] = None
+    task_id: Optional[str] = None
+    project_id: Optional[str] = None
     repository_path: Optional[str] = None
     target_component: Optional[str] = "core"
     risk_level: str = "MEDIUM"
@@ -524,6 +530,8 @@ class RealtimeEvent(BaseModel):
     event_type: str
     timestamp: datetime
     sequence: int
+    project_id: Optional[str] = None
+    run_id: Optional[str] = None
     entity_type: Optional[str] = None
     entity_id: Optional[str] = None
     payload: Dict[str, Any] = Field(default_factory=dict)
@@ -1020,6 +1028,7 @@ class QuestionOptionModel(BaseModel):
 
 class QuestionSummaryModel(BaseModel):
     question_id: str
+    project_id: Optional[str] = None
     run_id: Optional[str] = None
     task_id: Optional[str] = None
     attempt_id: Optional[str] = None
@@ -1040,6 +1049,7 @@ class QuestionDetailModel(QuestionSummaryModel):
 
 
 class CreateQuestionRequestModel(BaseModel):
+    project_id: Optional[str] = None
     run_id: Optional[str] = None
     task_id: Optional[str] = None
     attempt_id: Optional[str] = None
