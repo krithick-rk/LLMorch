@@ -112,6 +112,7 @@ export function SettingsPage({ refreshSignal }) {
           { id: 'budgets', label: '🪙 Token Budgets' },
           { id: 'execution', label: '⚡ Execution & Scope' },
           { id: 'security', label: '🔐 Security & Secrets' },
+          { id: 'layout', label: '📐 Layout & Workspace' },
         ].map(tab => (
           <div
             key={tab.id}
@@ -431,6 +432,57 @@ export function SettingsPage({ refreshSignal }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Tab: Layout */}
+      {activeTab === 'layout' && (
+        <div className="settings-card">
+          <div className="card-title mb-16">Workspace Layout & Panel Dimensions</div>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+            Control panels are resizable via draggable splitters. Preferences are persisted in your browser's local storage.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxWidth: '500px', marginBottom: '24px' }}>
+            <div className="settings-row">
+              <div className="settings-info">
+                <div className="settings-name">Left Navigation Sidebar</div>
+                <div className="settings-desc">Range: 180px – 360px (Default: 220px)</div>
+              </div>
+              <Mono>{localStorage.getItem('llmorch_sidebar_width') || '220'} px</Mono>
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-info">
+                <div className="settings-name">Agent Activity Stream (Right)</div>
+                <div className="settings-desc">Range: 240px – 480px (Default: 320px)</div>
+              </div>
+              <Mono>{localStorage.getItem('llmorch_activity_width') || '320'} px</Mono>
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-info">
+                <div className="settings-name">Decision Inbox (Bottom)</div>
+                <div className="settings-desc">Range: 80px – 420px (Default: 160px)</div>
+              </div>
+              <Mono>{localStorage.getItem('llmorch_decision_height') || '160'} px</Mono>
+            </div>
+          </div>
+
+          <button
+            className="btn btn-secondary"
+            onClick={() => {
+              localStorage.removeItem('llmorch_sidebar_width');
+              localStorage.removeItem('llmorch_activity_width');
+              localStorage.removeItem('llmorch_decision_height');
+              setMessage('Layout reset to default proportions! Reloading workspace...');
+              setTimeout(() => {
+                window.location.reload();
+              }, 600);
+            }}
+          >
+            ↺ Reset Layout to Defaults
+          </button>
         </div>
       )}
     </div>

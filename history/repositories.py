@@ -679,6 +679,39 @@ class ExtendedRepositorySnapshotRepository:
                 schema_version=row["schema_version"],
             )
 
+    def list_for_repository(self, absolute_root: str) -> List[ExtendedRepositorySnapshot]:
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM repository_snapshots WHERE absolute_root = ? ORDER BY created_at DESC",
+                (str(absolute_root),)
+            ).fetchall()
+            results = []
+            for row in rows:
+                meta_sys = []
+                if "metadata_systems" in row.keys() and row["metadata_systems"]:
+                    try:
+                        meta_sys = json.loads(row["metadata_systems"])
+                    except Exception:
+                        meta_sys = []
+                results.append(ExtendedRepositorySnapshot(
+                    snapshot_id=row["snapshot_id"],
+                    repository_id=row["repository_id"],
+                    absolute_root=row["absolute_root"],
+                    repository_type=row["repository_type"],
+                    git_commit=row["git_commit"],
+                    archive_hash=row["archive_hash"],
+                    file_count=row["file_count"],
+                    language_summary=json.loads(row["language_summary"]),
+                    build_systems=json.loads(row["build_systems"]),
+                    metadata_systems=meta_sys,
+                    symlink_summary=json.loads(row["symlink_summary"]),
+                    classification_summary=json.loads(row["classification_summary"]),
+                    created_at=datetime.fromisoformat(row["created_at"]),
+                    schema_version=row["schema_version"],
+                ))
+            return results
+
+
 
 class SourceFileRepository:
     def __init__(self, db_service: DatabaseService):

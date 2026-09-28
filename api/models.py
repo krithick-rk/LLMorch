@@ -107,7 +107,31 @@ class TaskDetail(TaskSummary):
     required_capabilities: List[str] = Field(default_factory=list)
     preferred_roles: List[str] = Field(default_factory=list)
     risk_level: str = "LOW"
+    role: Optional[str] = None
+    scope: Optional[str] = None
+    model_id: Optional[str] = None
+    analysis_unit_id: Optional[str] = None
+    repository_name: Optional[str] = None
+    repository_path: Optional[str] = None
+    description: Optional[str] = None
+    elapsed_seconds: Optional[float] = None
+    tokens_consumed: int = 0
     runs: List[RunSummary] = Field(default_factory=list)
+    tool_executions: List[Dict[str, Any]] = Field(default_factory=list)
+    attempts: List[Dict[str, Any]] = Field(default_factory=list)
+    evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    hypotheses: List[Dict[str, Any]] = Field(default_factory=list)
+    instructions: List[Dict[str, Any]] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
+    current_state: Optional[str] = None
+    stopped_at: Optional[datetime] = None
+    stop_reason: Optional[str] = None
+    checkpoint_count: int = 0
+    manually_stopped: bool = False
+    part_of_stopped_run: bool = False
+    last_agent_state: Optional[str] = None
+    last_tool: Optional[str] = None
+
 
 
 class TaskCreateRequest(BaseModel):
@@ -893,7 +917,8 @@ class AnalysisStartRequest(BaseModel):
     token_budget: Optional[int] = None
     analysis_units: Optional[List[str]] = None
     assignment_mode: Optional[str] = "AUTOMATIC"  # AUTOMATIC or MANUAL
-    assignments: Optional[List[Dict[str, Any]]] = None
+    assignments: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None
+
 
 
 class AnalysisStartResponse(BaseModel):
@@ -906,6 +931,13 @@ class AnalysisStartResponse(BaseModel):
     assigned_agents: List[str]
     token_budget: int
     message: str
+    tasks: List[str] = Field(default_factory=list)
+    stage: Optional[str] = "REPOSITORY_INTAKE"
+    is_terminal: Optional[bool] = False
+    tasks_spawned: Optional[int] = 0
+    preflight_report: Optional[Dict[str, Any]] = None
+    suggested_actions: Optional[List[str]] = None
+    execution_recommendation: Optional[Dict[str, Any]] = None
 
 
 class AnalysisPreValidateResponse(BaseModel):

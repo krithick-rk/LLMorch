@@ -1,22 +1,26 @@
 import { useState, useEffect, useRef } from 'react'
 import api from '../../api'
-import { fmt, shortId, StatusPill } from '../shared'
+import { fmt, shortId, StatusPill, Btn } from '../shared'
 
 /**
- * AgentActivityStream.jsx — Phase 9.5
+ * AgentActivityStream.jsx — Phase 9.6
  * Located on the RIGHT side of the investigation workflow.
- * Exposes transparent operational activity ONLY:
- * - Tool invocations & completions
- * - Observations & hypotheses
- * - Evidence created
- * - Task state changes
- * - Stall warnings & questions
+ * Exposes:
+ * 1. Operational Activity Stream (Tool invocations, Observations, Hypotheses, Evidence)
+ * 2. General Investigation Chat (Authoritative communication with LLMorch Orchestrator)
  * (NEVER exposes private chain-of-thought)
  */
-export function AgentActivityStream({ runId, refreshSignal, onSelectEntity }) {
+export function AgentActivityStream({ runId, refreshSignal, onSelectEntity, width = 320 }) {
+  const [activeTab, setActiveTab] = useState('STREAM') // 'STREAM' | 'CHAT'
   const [activities, setActivities] = useState([])
   const [filter, setFilter] = useState('ALL')
   const streamEndRef = useRef(null)
+
+  // General Investigation Chat state
+  const [chatMessages, setChatMessages] = useState([])
+  const [chatInput, setChatInput] = useState('')
+  const [sendingChat, setSendingChat] = useState(false)
+  const chatEndRef = useRef(null)
 
   const loadActivities = async () => {
     try {
@@ -58,28 +62,61 @@ export function AgentActivityStream({ runId, refreshSignal, onSelectEntity }) {
 
         combined.push({
           id: e.event_id || `evt-${Math.random()}`,
-          timestamp: e.created_at || e.timestamp,
-          type,
-          agent: e.agent_id || 'System Orchestrator',
-          title: e.event_type?.replace(/_/g, ' ') || 'State Event',
-          description: e.message || e.payload?.message || JSON.stringify(e.payload || {}),
-          status: e.status || 'INFO',
-          entityId: e.entity_id,
-          entityType: e.entity_type,
+          timestamp: e.timestamp || e.created_at,
+          type: type,
+          agent: e.agent_id || 'LLMorch Orchestrator',
+          title: e.event_type || 'System Event',
+          description: e.summary || e.description || JSON.stringify(e.payload || {}),
+          status: 'LOGGED',
+          evidence_ids: e.evidence_id ? [e.evidence_id] : [],
+          entityId: e.evidence_id || e.finding_id || e.task_id,
+          entityType: e.evidence_id ? 'evidence' : e.finding_id ? 'finding' : 'task',
         })
       }
 
-      // Sort by timestamp descending
-      combined.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))
-      setActivities(combined.slice(0, 100))
+      // Sort chronological descending
+      combined.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      setActivities(combined)
     } catch (err) {
-      console.error('Failed to load agent activities:', err)
+      console.error('Failed to load activity stream:', err)
+    }
+  }
+
+  const loadChat = async () => {
+    try {
+      const res = await api.investigationChatHistory(runId)
+      const list = Array.isArray(res) ? res : (res?.items || [])
+      setChatMessages(list)
+    } catch {
+      setChatMessages([])
     }
   }
 
   useEffect(() => {
     loadActivities()
+    loadChat()
   }, [runId, refreshSignal])
+
+  useEffect(() => {
+    if (activeTab === 'CHAT') {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [chatMessages, activeTab])
+
+  const handleSendChat = async (textToSend) => {
+    const text = (textToSend || chatInput).trim()
+    if (!text || sendingChat) return
+    setSendingChat(true)
+    try {
+      await api.sendInvestigationQuery({ message: text }, runId)
+      setChatInput('')
+      await loadChat()
+    } catch (err) {
+      console.error('Failed to send investigation query:', err)
+    } finally {
+      setSendingChat(false)
+    }
+  }
 
   const filteredActivities = activities.filter(a => {
     if (filter === 'ALL') return true
@@ -89,11 +126,18 @@ export function AgentActivityStream({ runId, refreshSignal, onSelectEntity }) {
     return true
   })
 
+  const SUGGESTIONS = [
+    'What agents are currently working?',
+    'What tools are available?',
+    'What findings have been validated?',
+    'What is the current run state?',
+  ]
+
   return (
     <div style={{
-      width: '320px',
-      minWidth: '280px',
-      maxWidth: '360px',
+      width: `${width}px`,
+      minWidth: '240px',
+      maxWidth: '520px',
       height: '100%',
       display: 'flex',
       flexDirection: 'column',
@@ -104,129 +148,309 @@ export function AgentActivityStream({ runId, refreshSignal, onSelectEntity }) {
       borderRadius: '8px',
       overflow: 'hidden',
     }}>
-      {/* Stream Header */}
+      {/* Stream Header & Tab Controls */}
       <div style={{
         padding: '10px 14px',
         borderBottom: '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '6px',
+        gap: '8px',
         background: 'var(--bg-elevated)',
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
-            AGENT ACTIVITY STREAM
-          </div>
-          <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-            {filteredActivities.length} items
-          </span>
+        {/* Main Tab Switcher */}
+        <div style={{ display: 'flex', background: 'var(--bg-base)', padding: '2px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+          <button
+            onClick={() => setActiveTab('STREAM')}
+            style={{
+              flex: 1,
+              padding: '4px 8px',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '11px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              background: activeTab === 'STREAM' ? 'var(--accent-blue)' : 'transparent',
+              color: activeTab === 'STREAM' ? '#fff' : 'var(--text-muted)',
+              transition: 'all 0.15s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '5px',
+            }}
+          >
+            <span>⚡</span>
+            <span>Activity Stream</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('CHAT')}
+            style={{
+              flex: 1,
+              padding: '4px 8px',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '11px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              background: activeTab === 'CHAT' ? 'var(--accent-blue)' : 'transparent',
+              color: activeTab === 'CHAT' ? '#fff' : 'var(--text-muted)',
+              transition: 'all 0.15s ease',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '5px',
+            }}
+          >
+            <span>💬</span>
+            <span>Investigation Chat</span>
+          </button>
         </div>
-        
-        {/* Stream Filter Pills */}
-        <div style={{ display: 'flex', gap: '4px' }}>
-          {['ALL', 'TOOLS', 'EVIDENCE', 'QUESTIONS'].map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              style={{
-                background: filter === f ? 'var(--accent-blue)' : 'transparent',
-                color: filter === f ? '#fff' : 'var(--text-muted)',
-                border: '1px solid var(--border)',
-                borderRadius: '4px',
-                padding: '2px 6px',
-                fontSize: '9px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-      </div>
 
-      {/* Activity List */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '8px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-      }}>
-        {filteredActivities.length === 0 ? (
-          <div style={{ padding: '24px 12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '11px' }}>
-            No agent activity recorded yet. Activities will stream live during execution.
+        {activeTab === 'STREAM' ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              {['ALL', 'TOOLS', 'EVIDENCE', 'QUESTIONS'].map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  style={{
+                    background: filter === f ? 'var(--accent-blue)' : 'transparent',
+                    color: filter === f ? '#fff' : 'var(--text-muted)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '4px',
+                    padding: '2px 6px',
+                    fontSize: '9px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+              {filteredActivities.length} items
+            </span>
           </div>
         ) : (
-          filteredActivities.map(item => (
-            <div
-              key={item.id}
-              onClick={() => onSelectEntity && onSelectEntity(item.entityType, item.entityId)}
-              style={{
-                padding: '8px 10px',
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border)',
-                borderRadius: '6px',
-                fontSize: '11px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '4px',
-                cursor: onSelectEntity ? 'pointer' : 'default',
-                transition: 'border-color 0.15s ease',
-              }}
-              className="hover:border-accent"
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{
-                  fontSize: '9px',
-                  fontWeight: 700,
-                  padding: '1px 5px',
-                  borderRadius: '3px',
-                  background: item.type === 'TOOL' ? '#3b82f622' : item.type === 'EVIDENCE' ? '#10b98122' : item.type === 'QUESTION' ? '#f59e0b22' : '#64748b22',
-                  color: item.type === 'TOOL' ? '#60a5fa' : item.type === 'EVIDENCE' ? '#34d399' : item.type === 'QUESTION' ? '#fbbf24' : '#94a3b8',
-                }}>
-                  {item.type}
-                </span>
-                <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  {item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : ''}
-                </span>
-              </div>
-
-              <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '11px' }}>
-                {item.title}
-              </div>
-
-              <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>
-                {item.agent && <span style={{ color: 'var(--text-secondary)' }}>[{item.agent}] </span>}
-                {item.description}
-              </div>
-
-              {item.evidence_ids && item.evidence_ids.length > 0 && (
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '2px' }}>
-                  {item.evidence_ids.map(eid => (
-                    <span
-                      key={eid}
-                      style={{
-                        fontSize: '9px',
-                        padding: '1px 4px',
-                        background: '#10b98122',
-                        color: '#34d399',
-                        borderRadius: '3px',
-                        fontFamily: 'var(--font-mono)',
-                      }}
-                    >
-                      {eid}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))
+          <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+            Authoritative query interface — Ask LLMorch Orchestrator
+          </div>
         )}
-        <div ref={streamEndRef} />
       </div>
+
+      {/* View 1: Activity Stream List */}
+      {activeTab === 'STREAM' && (
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '8px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+        }}>
+          {filteredActivities.length === 0 ? (
+            <div style={{ padding: '24px 12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '11px' }}>
+              No agent activity recorded yet. Activities will stream live during execution.
+            </div>
+          ) : (
+            filteredActivities.map(item => (
+              <div
+                key={item.id}
+                onClick={() => onSelectEntity && onSelectEntity(item.entityType, item.entityId)}
+                style={{
+                  padding: '8px 10px',
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                  cursor: onSelectEntity ? 'pointer' : 'default',
+                  transition: 'border-color 0.15s ease',
+                }}
+                className="hover:border-accent"
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{
+                    fontSize: '9px',
+                    fontWeight: 700,
+                    padding: '1px 5px',
+                    borderRadius: '3px',
+                    background: item.type === 'TOOL' ? '#3b82f622' : item.type === 'EVIDENCE' ? '#10b98122' : item.type === 'QUESTION' ? '#f59e0b22' : '#64748b22',
+                    color: item.type === 'TOOL' ? '#60a5fa' : item.type === 'EVIDENCE' ? '#34d399' : item.type === 'QUESTION' ? '#fbbf24' : '#94a3b8',
+                  }}>
+                    {item.type}
+                  </span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    {item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : ''}
+                  </span>
+                </div>
+
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '11px' }}>
+                  {item.title}
+                </div>
+
+                <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>
+                  {item.agent && <span style={{ color: 'var(--text-secondary)' }}>[{item.agent}] </span>}
+                  {item.description}
+                </div>
+
+                {item.evidence_ids && item.evidence_ids.length > 0 && (
+                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '2px' }}>
+                    {item.evidence_ids.map(eid => (
+                      <span
+                        key={eid}
+                        style={{
+                          fontSize: '9px',
+                          padding: '1px 4px',
+                          background: '#10b98122',
+                          color: '#34d399',
+                          borderRadius: '3px',
+                          fontFamily: 'var(--font-mono)',
+                        }}
+                      >
+                        {eid}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+          <div ref={streamEndRef} />
+        </div>
+      )}
+
+      {/* View 2: General Investigation Chat */}
+      {activeTab === 'CHAT' && (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Quick Suggestion Chips */}
+          <div style={{
+            padding: '8px',
+            borderBottom: '1px solid var(--border)',
+            display: 'flex',
+            gap: '4px',
+            flexWrap: 'wrap',
+            background: 'var(--bg-base)',
+          }}>
+            {SUGGESTIONS.map(s => (
+              <button
+                key={s}
+                onClick={() => handleSendChat(s)}
+                disabled={sendingChat}
+                style={{
+                  fontSize: '9px',
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '4px',
+                  padding: '2px 6px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                + {s}
+              </button>
+            ))}
+          </div>
+
+          {/* Conversation history */}
+          <div style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '10px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+          }}>
+            {chatMessages.length === 0 ? (
+              <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '11px', padding: '24px 12px' }}>
+                <div style={{ fontSize: '24px', marginBottom: '8px' }}>🤖</div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                  General Investigation Chat
+                </div>
+                Ask the LLMorch Orchestrator anything about current agents, tools, run state, or findings.
+              </div>
+            ) : (
+              chatMessages.map(msg => {
+                const isUser = msg.sender_role === 'ANALYST'
+                return (
+                  <div
+                    key={msg.message_id}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: isUser ? 'flex-end' : 'flex-start',
+                      gap: '3px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '9px', color: 'var(--text-muted)' }}>
+                      <span style={{ fontWeight: 700, color: isUser ? 'var(--accent-blue)' : '#4ade80' }}>
+                        {isUser ? 'Analyst' : 'LLMorch Orchestrator'}
+                      </span>
+                      <span>{msg.created_at ? new Date(msg.created_at).toLocaleTimeString() : ''}</span>
+                    </div>
+
+                    <div style={{
+                      maxWidth: '90%',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      lineHeight: '1.4',
+                      background: isUser ? 'rgba(56, 189, 248, 0.15)' : 'var(--bg-card)',
+                      border: isUser ? '1px solid rgba(56, 189, 248, 0.3)' : '1px solid var(--border)',
+                      color: 'var(--text-primary)',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                    }}>
+                      {msg.content}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Chat input box */}
+          <div style={{
+            padding: '8px',
+            borderTop: '1px solid var(--border)',
+            background: 'var(--bg-elevated)',
+            display: 'flex',
+            gap: '6px',
+          }}>
+            <input
+              type="text"
+              placeholder="Ask Orchestrator…"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSendChat()
+              }}
+              disabled={sendingChat}
+              style={{
+                flex: 1,
+                background: 'var(--bg-base)',
+                border: '1px solid var(--border)',
+                borderRadius: '5px',
+                padding: '6px 8px',
+                fontSize: '11px',
+                color: 'var(--text-primary)',
+              }}
+            />
+            <Btn
+              onClick={() => handleSendChat()}
+              variant="primary"
+              size="xs"
+              disabled={sendingChat || !chatInput.trim()}
+            >
+              {sendingChat ? '…' : 'Send'}
+            </Btn>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

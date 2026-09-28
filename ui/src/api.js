@@ -137,6 +137,7 @@ export const api = {
   // Phase 9.5 — Repository Intake & Capability Report
   analyzeRepository: (body = {}) => req('/repositories/analyze', { method: 'POST', body: JSON.stringify(body) }),
   currentRepoOverview: () => req('/repositories/current/overview'),
+  repositoryPreflight: (path) => req('/repositories/preflight' + (path ? `?path=${encodeURIComponent(path)}` : '')),
 
   // Phase 9.5 — Agent Runtime & Local Terminal Guidance
   agentRuntimeStatus: () => req('/agents/runtime/status'),
@@ -145,6 +146,49 @@ export const api = {
 
   // Phase 9.5 — Attempt Detail
   attemptDetail: (id) => req(`/attempts/${id}`),
+
+  // Phase 9.6 — Dual Agent Chat & Entity Details
+  taskChatHistory: (taskId) => req(`/chat/task/${taskId}`),
+  sendTaskInstruction: (taskId, body) => req(`/chat/task/${taskId}`, { method: 'POST', body: JSON.stringify(body) }),
+  investigationChatHistory: (runId) => req(`/chat/investigation${runId ? `?run_id=${runId}` : ''}`),
+  sendInvestigationQuery: (body, runId) => req(`/chat/investigation${runId ? `?run_id=${runId}` : ''}`, { method: 'POST', body: JSON.stringify(body) }),
+  taskDetail: (taskId) => req(`/tasks/${taskId}`),
+  repositoryDetail: (repoId) => req(`/repository/${repoId}`),
+
+  // Phase 10 — SoC Verification Platform
+  // Supervisor & Verification Plans
+  generateVerificationPlan: (body = {}) => req('/supervisor/plan', { method: 'POST', body: JSON.stringify(body) }),
+  listVerificationPlans: (params = {}) => req('/supervisor/plans?' + new URLSearchParams(params)),
+  getVerificationPlan: (planId) => req(`/supervisor/plan/${planId}`),
+  approveVerificationPlan: (planId) => req(`/supervisor/plan/${planId}/approve`, { method: 'POST' }),
+  rejectVerificationPlan: (planId) => req(`/supervisor/plan/${planId}/reject`, { method: 'POST' }),
+  replanVerificationPlan: (planId, body) => req(`/supervisor/plan/${planId}/replan`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // Specifications
+  ingestSpecification: (body) => req('/specifications/ingest', { method: 'POST', body: JSON.stringify(body) }),
+  listSpecifications: () => req('/specifications'),
+  listSpecRequirements: (specId) => req(`/specifications/${specId}/requirements`),
+
+  // Closure & Traceability
+  getClosure: (planId) => req(`/closure/${planId}`),
+  recordWaiver: (planId, body) => req(`/closure/${planId}/waiver`, { method: 'POST', body: JSON.stringify(body) }),
+  recordGap: (planId, body) => req(`/closure/${planId}/gap`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // Policies (SoCureLLM-inspired)
+  listPolicies: (status) => req(`/policies${status ? `?status=${status}` : ''}`),
+  createPolicy: (body) => req('/policies', { method: 'POST', body: JSON.stringify(body) }),
+  reviewPolicy: (policyId, body) => req(`/policies/${policyId}/review`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // Context Fabric
+  getContextSummary: () => req('/context-fabric/summary'),
+  getContextPack: (taskId) => req(`/context-fabric/pack/${taskId}`),
+
+  // User Tasks, Diagnostics & Actionable Overrides
+  createUserTask: (body) => req('/tasks/create', { method: 'POST', body: JSON.stringify(body) }),
+  retryTaskWithOverrides: (taskId, body) => req(`/tasks/${taskId}/retry`, { method: 'POST', body: JSON.stringify(body) }),
+  getTaskDiagnostics: (taskId) => req(`/tasks/${taskId}/diagnostics`),
+  checkWatchdog: (taskId) => req(`/tasks/${taskId}/watchdog-check`, { method: 'POST' }),
 };
+
 
 export default api;

@@ -42,6 +42,12 @@ from api.routers import (
     analysis,
     runs,
     questions,
+    chat,
+    supervisor,
+    specifications,
+    closure,
+    policies,
+    context_fabric,
 )
 
 # ─── App ──────────────────────────────────────────────────────────────────────
@@ -94,6 +100,13 @@ app.include_router(tools.router)
 app.include_router(analysis.router)
 app.include_router(runs.router)
 app.include_router(questions.router)
+app.include_router(chat.router)
+app.include_router(supervisor.router)
+app.include_router(specifications.router)
+app.include_router(closure.router)
+app.include_router(policies.router)
+app.include_router(context_fabric.router)
+
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

@@ -172,12 +172,139 @@ async def start_analysis(
             detail="No executable agents available (Antigravity and Codex required)"
         )
 
-    # 1. Create Run with authoritative security analysis timer start
+    # 1. Deterministic Preflight Repository Intake Check
+    from repository_intelligence.preflight import analyze_repository_preflight
+    preflight = analyze_repository_preflight(str(p))
+
     run_id = f"run-{uuid.uuid4().hex[:8]}"
     workflow_id = f"wf-{uuid.uuid4().hex[:8]}"
+    root_task_id = f"task-root-{run_id}"
     now = datetime.now(timezone.utc).isoformat()
+    budget = request.token_budget or 650000
 
+    if preflight.is_terminal:
+        # Run MUST terminate immediately.
+        # No infinite loop, no repeated empty tasks, no runaway tokens, no NaN, no [object Object].
+        # Explicit status: COMPLETED_NO_ANALYZABLE_CONTENT (or other terminal status)
+        with db.get_connection() as conn:
+            root_inputs = {
+                "repository_path": str(p),
+                "repository_name": repo_name,
+                "repository_family": repo_family,
+                "preflight": preflight.model_dump(),
+                "objective": f"Preflight Intake: {preflight.summary_text}",
+            }
+            conn.execute("""
+                INSERT INTO tasks (
+                    task_id, workflow_id, parent_task_id, objective, inputs, dependencies,
+                    required_capabilities, preferred_roles, risk_level, workspace_policy,
+                    tool_policy, budget, status, assigned_agent_id, retry_count,
+                    acceptance_criteria, result_ref, schema_version, created_at, started_at, completed_at,
+                    watchdog_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                root_task_id, workflow_id, None,
+                f"Repository Intake: {preflight.summary_text}",
+                json.dumps(root_inputs), json.dumps([]),
+                json.dumps(["repository_intake"]), json.dumps(["Repository Intake"]),
+                "LOW", json.dumps({"workspace_class": "sandboxed"}),
+                json.dumps({"allowed_tools": []}), json.dumps({"max_tokens": 0}),
+                "COMPLETED", available_agents[0], 0, json.dumps(["intake_completed"]),
+                None, "1.0", now, now, now, "COMPLETED"
+            ))
+            conn.execute("UPDATE tasks SET role = ?, scope = ? WHERE task_id = ?", ("Repository Intake", str(p), root_task_id))
+
+            conn.execute("""
+                INSERT INTO runs (
+                    run_id, task_id, parent_run_id, agent_id, adapter_version,
+                    start_time, end_time, process_id, exit_status, workspace_id,
+                    environment_fingerprint, status, failure_code, failure_reason, schema_version,
+                    run_state, repository_name, repository_path, token_budget,
+                    analysis_started_at, active_duration_seconds, stage, completed_at, preflight_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                run_id, root_task_id, None, available_agents[0], "1.0.0",
+                now, now, None, 0, f"ws-{run_id}",
+                "linux-sandbox", preflight.terminal_status, None, None, "1.0",
+                "COMPLETED", repo_name, str(p), 0,
+                None, 0, "REPOSITORY_INTAKE", now, preflight.classification
+            ))
+            conn.commit()
+
+        # Emit events
+        await event_manager.broadcast(
+            event_type="REPOSITORY_INTAKE_COMPLETED",
+            entity_type="run",
+            entity_id=run_id,
+            payload={
+                "run_id": run_id,
+                "classification": preflight.classification,
+                "status": preflight.terminal_status,
+                "files_discovered": preflight.files_discovered,
+                "analyzable_files": preflight.analyzable_files_count,
+                "suggested_actions": preflight.suggested_actions
+            }
+        )
+        await event_manager.broadcast(
+            event_type="RUN_COMPLETED",
+            entity_type="run",
+            entity_id=run_id,
+            payload={
+                "run_id": run_id,
+                "status": preflight.terminal_status,
+                "message": preflight.summary_text
+            }
+        )
+
+        return AnalysisStartResponse(
+            run_id=run_id,
+            repository_path=str(p),
+            repository_name=repo_name,
+            repository_family=repo_family,
+            status=preflight.terminal_status,
+            created_tasks_count=1,
+            assigned_agents=[available_agents[0]],
+            token_budget=0,
+            message=preflight.summary_text,
+            tasks=[root_task_id],
+            stage="REPOSITORY_INTAKE",
+            is_terminal=True,
+            tasks_spawned=0,
+            preflight_report=preflight.model_dump(),
+            suggested_actions=preflight.suggested_actions
+        )
+
+    # 2. Create Active Run with authoritative security analysis timer start
+    # Insert root task FIRST into tasks to satisfy FOREIGN KEY (task_id) REFERENCES tasks(task_id)
     with db.get_connection() as conn:
+        root_inputs = {
+            "repository_path": str(p),
+            "repository_name": repo_name,
+            "repository_family": repo_family,
+            "objective": request.objective or f"Security analysis of {repo_name}",
+        }
+        conn.execute("""
+            INSERT INTO tasks (
+                task_id, workflow_id, parent_task_id, objective, inputs, dependencies,
+                required_capabilities, preferred_roles, risk_level, workspace_policy,
+                tool_policy, budget, status, assigned_agent_id, retry_count,
+                acceptance_criteria, result_ref, schema_version, created_at, started_at, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            root_task_id, workflow_id, None,
+            f"Investigation Root: {request.objective or 'Vulnerability Research'}",
+            json.dumps(root_inputs), json.dumps([]),
+            json.dumps(["orchestration", "repository_analysis"]),
+            json.dumps(["Security Orchestrator"]),
+            "MEDIUM", json.dumps({"workspace_class": "sandboxed"}),
+            json.dumps({"allowed_tools": ["all"]}),
+            json.dumps({"max_tokens": budget}),
+            "RUNNING", available_agents[0], 0, json.dumps(["completed"]),
+            None, "1.0", now, now, None
+        ))
+        conn.execute("UPDATE tasks SET role = ?, scope = ? WHERE task_id = ?", ("Security Orchestrator", str(p), root_task_id))
+
+        # Insert run referencing the valid root_task_id
         conn.execute("""
             INSERT INTO runs (
                 run_id, task_id, parent_run_id, agent_id, adapter_version,
@@ -187,10 +314,10 @@ async def start_analysis(
                 analysis_started_at, active_duration_seconds, stage
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            run_id, f"task-root-{run_id}", None, available_agents[0], "1.0.0",
+            run_id, root_task_id, None, available_agents[0], "1.0.0",
             now, None, None, None, f"ws-{run_id}",
             "linux-sandbox", "RUNNING", None, None, "1.0",
-            "RUNNING", repo_name, str(p), request.token_budget or 650000,
+            "RUNNING", repo_name, str(p), budget,
             now, 0, "SECURITY_ANALYSIS"
         ))
         conn.commit()
@@ -217,14 +344,25 @@ async def start_analysis(
     attempt_repo = TaskAttemptRepository(db)
     role_repo = AgentRoleRepository(db)
     tool_repo = ToolExecutionRepository(db)
-    created_tasks = []
-    budget = request.token_budget or 650000
+    created_tasks = [root_task_id]
 
     # Build task plan
     task_items = []
     if request.assignments:
-        # Manual Assignment mode
-        for asgn in request.assignments:
+        # Normalize assignments: handle list of dicts or dict {unit_id: {...}}
+        if isinstance(request.assignments, dict):
+            asgn_iterable = []
+            for uid, val in request.assignments.items():
+                if isinstance(val, dict):
+                    asgn_iterable.append({"unit_id": uid, **val})
+                elif isinstance(val, str):
+                    asgn_iterable.append({"unit_id": uid, "agent_id": val})
+                else:
+                    asgn_iterable.append({"unit_id": uid})
+        else:
+            asgn_iterable = request.assignments
+
+        for asgn in asgn_iterable:
             task_items.append({
                 "unit_id": asgn.get("unit_id"),
                 "scope": asgn.get("scope", asgn.get("name", "source/")),
@@ -248,8 +386,15 @@ async def start_analysis(
                 "objective": f"Analyze {u.name} in {repo_name} for vulnerabilities and boundary violations",
             })
     else:
-        # Empty repository or metadata-only
-        pass
+        # Generic repository or single file without specialized hardware units
+        task_items.append({
+            "unit_id": f"unit-generic-{uuid.uuid4().hex[:6]}",
+            "scope": "source/",
+            "role": "General Security Analyst",
+            "agent_id": available_agents[0],
+            "model_id": None,
+            "objective": f"Comprehensive vulnerability analysis and boundary review for {repo_name}",
+        })
 
     with db.get_connection() as conn:
         for idx, item in enumerate(task_items):
@@ -276,7 +421,7 @@ async def start_analysis(
                     acceptance_criteria, result_ref, schema_version, created_at, started_at, completed_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                tid, workflow_id, None, item["objective"], json.dumps(inputs), json.dumps([]),
+                tid, workflow_id, root_task_id, item["objective"], json.dumps(inputs), json.dumps([]),
                 json.dumps(["repository_analysis", "security_review"]), json.dumps([role]),
                 "MEDIUM", json.dumps({"workspace_class": "sandboxed"}),
                 json.dumps({"allowed_tools": ["all"]}), json.dumps({"max_tokens": budget // max(1, len(task_items))}),
@@ -285,6 +430,7 @@ async def start_analysis(
             ))
             conn.execute("UPDATE tasks SET role = ?, scope = ? WHERE task_id = ?", (role, item["scope"], tid))
             conn.commit()
+
 
             # Record initial attempt 1
             att = attempt_repo.create_attempt(
@@ -348,9 +494,10 @@ async def start_analysis(
         payload={
             "run_id": run_id,
             "stage": "SURFACE_MAPPING",
-            "analysis_units_count": len(analysis_units_meta),
+            "analysis_units_count": len(real_units),
         }
     )
+
 
     return AnalysisStartResponse(
         run_id=run_id,
@@ -361,5 +508,6 @@ async def start_analysis(
         created_tasks_count=len(created_tasks),
         assigned_agents=available_agents,
         token_budget=budget,
+        tasks=created_tasks,
         message=f"Analysis run '{run_id}' successfully initiated for repository '{repo_name}' with {len(created_tasks)} analysis unit tasks."
     )

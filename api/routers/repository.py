@@ -578,6 +578,30 @@ def list_recent_repositories(
     return RecentRepositoriesResponse(repositories=items)
 
 
+@router.get("/api/repositories/preflight", tags=["repository"])
+def get_repository_preflight(
+    path: Optional[str] = Query(None),
+    session: SessionInfo = Depends(require_session),
+):
+    """
+    Deterministic preflight analysis: counts files, detects RTL/SW/specs/build systems,
+    and returns analyzability classification without running LLM agents.
+    """
+    from repository_intelligence.preflight import analyze_repository_preflight
+    target_path = path
+    if not target_path or not target_path.strip():
+        db = _get_db()
+        target_repo = TargetRepositoryRepository(db)
+        cur = target_repo.get_current()
+        if cur and cur.get("repository_path"):
+            target_path = cur.get("repository_path")
+    if not target_path or not target_path.strip():
+        target_path = os.getcwd()
+    
+    report = analyze_repository_preflight(target_path)
+    return report.model_dump()
+
+
 @router.get("/api/repositories/browse", response_model=DirectoryBrowseResponse, tags=["repository"])
 def browse_directory(
     path: Optional[str] = Query(None),
@@ -691,6 +715,27 @@ def browse_directory(
         allowed_roots=allowed_roots,
         entries=entries,
     )
+
+
+@router.get("/api/repository/{repo_id}", response_model=RepositoryCapabilityReport, tags=["repository"])
+@router.get("/api/repositories/{repo_id}", response_model=RepositoryCapabilityReport, tags=["repository"])
+def get_repository_by_id(repo_id: str, session: SessionInfo = Depends(require_session)):
+    """Retrieves capability report for a specific repository by name, path, or id."""
+    db = _get_db()
+    target_repo = TargetRepositoryRepository(db)
+    cur = target_repo.get_current()
+    if cur and (cur.get("repository_name") == repo_id or cur.get("repository_path") == repo_id or repo_id in ("current", "default")):
+        return _build_repository_capability_report(cur["repository_path"], db)
+    recent = target_repo.list_recent(limit=50)
+    for r in recent:
+        if r.get("repository_name") == repo_id or r.get("repository_path") == repo_id or Path(r.get("repository_path", "")).name == repo_id:
+            return _build_repository_capability_report(r["repository_path"], db)
+    p = Path(repo_id)
+    if p.exists() and p.is_dir():
+        return _build_repository_capability_report(str(p), db)
+    if cur:
+        return _build_repository_capability_report(cur["repository_path"], db)
+    raise HTTPException(status_code=404, detail=f"Repository '{repo_id}' not found")
 
 
 # ─── Repositories / Snapshots ─────────────────────────────────────────────────

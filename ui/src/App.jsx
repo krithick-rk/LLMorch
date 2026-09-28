@@ -13,6 +13,20 @@ import { RepositorySelectorModal } from './components/RepositorySelectorModal'
 import { AgentWorkflowPage } from './components/AgentWorkflow/AgentWorkflow'
 import { ToolsPage } from './components/Tools/ToolsPage'
 import { TargetRepositoryPage } from './components/Repository/TargetRepositoryPage'
+// Phase 9.6 components
+import { TaskDetailPage } from './components/TaskDetailPage'
+import { RunDetailPage } from './components/RunDetailPage'
+import { RunHistoryPage } from './components/RunHistoryPage'
+// SoC Verification Architecture components
+import VerificationPlanPage from './components/VerificationPlan/VerificationPlanPage'
+import ContextFabricPage from './components/ContextFabric/ContextFabricPage'
+import ClosurePage from './components/Closure/ClosurePage'
+import SpecificationsPage from './components/Specifications/SpecificationsPage'
+import PoliciesPage from './components/Policies/PoliciesPage'
+import CreateTaskModal from './components/CreateTaskModal'
+import TasksPage from './components/TasksPage'
+import AgentsPage from './components/AgentsPage'
+import DecisionsPage from './components/DecisionsPage'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -54,13 +68,15 @@ function shortId(id) {
 
 // ─── Page: Run Overview ───────────────────────────────────────────────────────
 
-function RunOverviewPage({ refreshSignal }) {
+function RunOverviewPage({ refreshSignal, onNavigate, currentRun }) {
   const [tasks, setTasks] = useState(null)
   const [agents, setAgents] = useState(null)
   const [findings, setFindings] = useState(null)
   const [currentRepo, setCurrentRepo] = useState(null)
   const [isEstimateModalOpen, setIsEstimateModalOpen] = useState(false)
   const [isRepoSelectorOpen, setIsRepoSelectorOpen] = useState(false)
+  const [taskFilter, setTaskFilter] = useState('CURRENT_RUN')
+  const [hideSynthetic, setHideSynthetic] = useState(true)
 
   const load = useCallback(async () => {
     const [t, a, f, r] = await Promise.all([
@@ -79,10 +95,23 @@ function RunOverviewPage({ refreshSignal }) {
 
   if (!tasks) return <Spinner />
 
-  const byStatus = (s) => tasks.items.filter(t => t.status === s).length
+  const byStatus = (s) => (tasks.items || []).filter(t => t.status === s).length
   const agentAvail = agents ? agents.items.filter(a => a.health === 'AVAILABLE').length : 0
   const agentTotal = agents ? agents.total : 0
   const findingByState = (s) => findings ? findings.items.filter(f => f.state === s).length : 0
+
+  const filteredTasks = (tasks.items || []).filter(t => {
+    if (hideSynthetic && (t.task_id?.startsWith('test-task-') || t.task_id?.startsWith('task-test-'))) return false
+    const st = (t.status || '').toUpperCase()
+    if (taskFilter === 'RUNNING') return ['RUNNING', 'IN_PROGRESS', 'ANALYZING'].includes(st)
+    if (taskFilter === 'STOPPED') return ['STOPPED', 'CANCELLED', 'PAUSED'].includes(st)
+    if (taskFilter === 'COMPLETED') return ['COMPLETED', 'SUCCEEDED'].includes(st)
+    if (taskFilter === 'CURRENT_RUN') {
+      if (currentRun?.run_id && t.run_id) return t.run_id === currentRun.run_id
+      return !t.task_id?.startsWith('test-')
+    }
+    return true
+  })
 
   return (
     <div>
@@ -149,28 +178,98 @@ function RunOverviewPage({ refreshSignal }) {
       </div>
 
       <div className="card">
-        <div className="card-header">
-          <div className="card-title">⚡ Recent Tasks</div>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <div className="card-title">⚡ Investigation Tasks</div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={hideSynthetic}
+                onChange={e => setHideSynthetic(e.target.checked)}
+              />
+              Hide synthetic test tasks
+            </label>
+            <div style={{ display: 'flex', gap: '3px', background: 'var(--bg-base)', padding: '2px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+              {['CURRENT_RUN', 'RUNNING', 'STOPPED', 'COMPLETED', 'ALL'].map(f => (
+                <button
+                  key={f}
+                  onClick={() => setTaskFilter(f)}
+                  style={{
+                    border: 'none',
+                    borderRadius: '4px',
+                    padding: '2px 8px',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    background: taskFilter === f ? 'var(--accent-blue)' : 'transparent',
+                    color: taskFilter === f ? '#fff' : 'var(--text-muted)',
+                  }}
+                >
+                  {f.replace('_', ' ')}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        {tasks.items.length === 0
-          ? <EmptyState msg="No tasks yet" />
+        {filteredTasks.length === 0
+          ? <EmptyState msg="No tasks matching filter" />
           : (
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Task ID</th><th>Objective</th><th>Status</th><th>Agent</th><th>Created</th>
+                  <th>Task ID</th><th>Objective & Scope</th><th>Status</th><th>Agent</th><th>Created</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {tasks.items.slice(0, 20).map(t => (
-                  <tr key={t.task_id}>
-                    <td><Mono>{shortId(t.task_id)}</Mono></td>
-                    <td style={{maxWidth:'260px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.objective}</td>
-                    <td><StatusBadge status={t.status} /></td>
-                    <td><Mono>{t.assigned_agent_id ? shortId(t.assigned_agent_id) : '—'}</Mono></td>
-                    <td className="text-muted">{fmt(t.created_at)}</td>
-                  </tr>
-                ))}
+                {filteredTasks.slice(0, 30).map(t => {
+                  const isNav = (e) => {
+                    if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+                      e.preventDefault()
+                      if (onNavigate) onNavigate('task', { type: 'task', id: t.task_id })
+                    }
+                  }
+                  return (
+                    <tr
+                      key={t.task_id}
+                      style={{ cursor: 'pointer' }}
+                      onClick={isNav}
+                    >
+                      <td>
+                        <a
+                          href={`/task/${t.task_id}`}
+                          onClick={isNav}
+                          style={{ textDecoration: 'none', color: 'var(--accent-blue)', fontWeight: 600 }}
+                        >
+                          <Mono>{shortId(t.task_id)}</Mono>
+                        </a>
+                      </td>
+                      <td style={{ maxWidth: '280px' }}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
+                          {t.objective}
+                        </div>
+                        {t.status === 'STOPPED' && t.stop_reason && (
+                          <div style={{ fontSize: '10px', color: 'var(--red)', marginTop: '2px' }}>
+                            Stop reason: {t.stop_reason}
+                          </div>
+                        )}
+                      </td>
+                      <td><StatusBadge status={t.status} /></td>
+                      <td><Mono>{t.assigned_agent_id ? shortId(t.assigned_agent_id) : '—'}</Mono></td>
+                      <td className="text-muted" style={{ fontSize: '11px' }}>{fmt(t.created_at)}</td>
+                      <td>
+                        <button
+                          className="btn btn-secondary btn-xs"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (onNavigate) onNavigate('task', { type: 'task', id: t.task_id })
+                          }}
+                        >
+                          View →
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           )
@@ -1228,37 +1327,45 @@ function GlobalIntelligencePage({ refreshSignal }) {
 
 // ─── App Shell ────────────────────────────────────────────────────────────────
 
-// Nav spec — Phase 9.4
+// Task-Oriented Navigation Hierarchy (Section 9)
 const NAV_SECTIONS = [
   {
-    label: 'Investigation',
+    label: 'WORKSPACE',
     pages: [
-      { id: 'overview',    label: 'Run Overview',      icon: '◈' },
-      { id: 'workflow',    label: 'Agent Workflow',    icon: '⬡' },
-      { id: 'target-repo', label: 'Target Repository', icon: '⊙' },
+      { id: 'target-repo',        label: 'Repository',        icon: '⊙' },
+      { id: 'specifications',     label: 'Specifications',    icon: '📖' },
+      { id: 'verification-plan',  label: 'Verification Plan', icon: '📋' },
     ],
   },
   {
-    label: 'Operations',
+    label: 'EXECUTION',
     pages: [
-      { id: 'agents',      label: 'Agents',            icon: '◉' },
-      { id: 'tools',       label: 'Tools',             icon: '◧' },
+      { id: 'tasks',              label: 'Tasks',             icon: '⚡' },
+      { id: 'runs',               label: 'Runs',              icon: '⏱' },
+      { id: 'tools',              label: 'Tools',             icon: '◧' },
+      { id: 'agents',             label: 'Agents',            icon: '◉' },
     ],
   },
   {
-    label: 'Intelligence',
+    label: 'RESULTS',
     pages: [
-      { id: 'dossier',     label: 'Findings',          icon: '▤' },
-      { id: 'hypothesis',  label: 'Hypotheses',        icon: '◇' },
-      { id: 'evidence',    label: 'Evidence',          icon: '◈' },
-      { id: 'timeline',    label: 'Timeline',          icon: '⊡' },
-      { id: 'intel',       label: 'Global Intel',      icon: '⊕' },
+      { id: 'evidence',           label: 'Evidence',          icon: '◈' },
+      { id: 'closure',            label: 'Coverage & Closure',icon: '🛡️' },
+      { id: 'dossier',            label: 'Findings',          icon: '▤' },
+      { id: 'policies',           label: 'Policies',          icon: '📜' },
     ],
   },
   {
-    label: 'Control Plane',
+    label: 'REVIEW',
     pages: [
-      { id: 'settings',    label: 'Settings & Policy', icon: '◎' },
+      { id: 'decisions',          label: 'Decisions & Review',icon: '⚖' },
+      { id: 'timeline',           label: 'Execution History', icon: '⊡' },
+    ],
+  },
+  {
+    label: 'SETTINGS',
+    pages: [
+      { id: 'settings',           label: 'Configuration',     icon: '◎' },
     ],
   },
 ]
@@ -1362,22 +1469,39 @@ export default function App() {
   // Route parsing for persistent URLs & new-tab support
   const parseRoute = () => {
     const p = window.location.pathname
-    if (p.startsWith('/run/')) return { page: 'overview', entityId: p.replace('/run/', '') }
-    if (p.startsWith('/finding/')) return { page: 'dossier', entityId: p.replace('/finding/', '') }
-    if (p.startsWith('/task/')) return { page: 'workflow', entityId: p.replace('/task/', '') }
+    if (p.startsWith('/run/')) return { page: 'run', entityId: p.replace('/run/', '') }
+    if (p.startsWith('/runs')) return { page: 'runs' }
+    if (p.startsWith('/tasks')) return { page: 'tasks' }
+    if (p.startsWith('/task/')) return { page: 'task', entityId: p.replace('/task/', '') }
+    if (p.startsWith('/attempt/')) return { page: 'task', entityId: p.replace('/attempt/', ''), isAttempt: true }
+    if (p.startsWith('/repository/') || p.startsWith('/repo/')) return { page: 'target-repo', entityId: p.replace('/repository/', '').replace('/repo/', '') }
+    if (p.startsWith('/repository') || p.startsWith('/repo')) return { page: 'target-repo' }
     if (p.startsWith('/agent/')) return { page: 'agents', entityId: p.replace('/agent/', '') }
     if (p.startsWith('/evidence/')) return { page: 'evidence', entityId: p.replace('/evidence/', '') }
     if (p.startsWith('/tool/')) return { page: 'tools', entityId: p.replace('/tool/', '') }
+    if (p.startsWith('/finding/')) return { page: 'dossier', entityId: p.replace('/finding/', '') }
+    if (p.startsWith('/decisions') || p.startsWith('/question')) return { page: 'decisions', entityId: p.replace('/question/', '').replace('/decision/', '') }
     if (p.startsWith('/workflow')) return { page: 'workflow' }
-    if (p.startsWith('/target-repo') || p.startsWith('/repository')) return { page: 'target-repo' }
+    if (p.startsWith('/target-repo')) return { page: 'target-repo' }
     if (p.startsWith('/agents')) return { page: 'agents' }
     if (p.startsWith('/tools')) return { page: 'tools' }
     if (p.startsWith('/dossier') || p.startsWith('/findings')) return { page: 'dossier' }
     if (p.startsWith('/hypothesis') || p.startsWith('/hypotheses')) return { page: 'hypothesis' }
     if (p.startsWith('/evidence')) return { page: 'evidence' }
     if (p.startsWith('/timeline')) return { page: 'timeline' }
+    if (p.startsWith('/plan/') || p.startsWith('/verification-plan/')) return { page: 'verification-plan', entityId: p.split('/')[2] }
+    if (p.startsWith('/plan') || p.startsWith('/verification-plan')) return { page: 'verification-plan' }
+    if (p.startsWith('/context-fabric')) return { page: 'context-fabric' }
+    if (p.startsWith('/closure/') || p.startsWith('/coverage/')) return { page: 'closure', entityId: p.split('/')[2] }
+    if (p.startsWith('/closure') || p.startsWith('/coverage')) return { page: 'closure' }
+    if (p.startsWith('/specifications') || p.startsWith('/specification/')) return { page: 'specifications', entityId: p.replace('/specification/', '') }
+    if (p.startsWith('/policies') || p.startsWith('/policy/')) return { page: 'policies', entityId: p.replace('/policy/', '') }
+    if (p.startsWith('/requirement/')) return { page: 'specifications', entityId: p.replace('/requirement/', '') }
+    if (p.startsWith('/objective/')) return { page: 'verification-plan', entityId: p.replace('/objective/', '') }
+    if (p.startsWith('/workpackage/')) return { page: 'verification-plan', entityId: p.replace('/workpackage/', '') }
+    if (p.startsWith('/gap/')) return { page: 'closure', entityId: p.replace('/gap/', '') }
     if (p.startsWith('/settings')) return { page: 'settings' }
-    return { page: 'overview' }
+    return { page: 'target-repo' }
   }
 
   const [page, setPageState] = useState(() => parseRoute().page)
@@ -1385,13 +1509,71 @@ export default function App() {
   const [refreshSignal, setRefreshSignal] = useState(0)
   const [wsConnected, setWsConnected] = useState(false)
   const [eventLog, setEventLog] = useState([])
+  const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false)
+
+  // Resizable sidebar state persisted to localStorage (Section 34)
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('llmorch_sidebar_width')
+    return saved ? Math.max(180, Math.min(360, parseInt(saved, 10))) : 210
+  })
+
+  // Collapsible & Resizable Inspector state (Section 8, 31, 34)
+  const [showInspector, setShowInspector] = useState(() => {
+    const saved = localStorage.getItem('llmorch_show_inspector')
+    return saved !== null ? saved === 'true' : true
+  })
+  const [inspectorWidth, setInspectorWidth] = useState(() => {
+    const saved = localStorage.getItem('llmorch_inspector_width')
+    return saved ? Math.max(220, Math.min(480, parseInt(saved, 10))) : 280
+  })
+
+  const handleSidebarResizeStart = (e) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = sidebarWidth
+    const onMouseMove = (moveEvt) => {
+      const newW = Math.max(180, Math.min(360, startW + (moveEvt.clientX - startX)))
+      setSidebarWidth(newW)
+      localStorage.setItem('llmorch_sidebar_width', newW.toString())
+    }
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }
+
+  const handleInspectorResizeStart = (e) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = inspectorWidth
+    const onMouseMove = (moveEvt) => {
+      const newW = Math.max(220, Math.min(480, startW - (moveEvt.clientX - startX)))
+      setInspectorWidth(newW)
+      localStorage.setItem('llmorch_inspector_width', newW.toString())
+    }
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }
 
   const setPage = (targetPage, entityInfo = null) => {
     setPageState(targetPage)
+    if (entityInfo) {
+      setSelectedEntity(entityInfo)
+    } else {
+      setSelectedEntity({ page: targetPage })
+    }
     let url = `/${targetPage}`
     if (targetPage === 'overview') url = '/'
     if (entityInfo?.type && entityInfo?.id) {
       url = `/${entityInfo.type}/${entityInfo.id}`
+    } else if (entityInfo?.entityId) {
+      url = `/${targetPage}/${entityInfo.entityId}`
     }
     if (window.location.pathname !== url) {
       window.history.pushState(null, '', url)
@@ -1557,21 +1739,33 @@ export default function App() {
 
   const renderPage = () => {
     const props = { refreshSignal, onNavigate: setPage, currentRun }
+    const entId = selectedEntity?.entityId || selectedEntity?.id
     switch (page) {
       case 'overview':     return <RunOverviewPage {...props} />
+      case 'tasks':        return <TasksPage onOpenCreateTask={() => setIsCreateTaskOpen(true)} {...props} />
+      case 'runs':         return <RunHistoryPage {...props} />
+      case 'run':          return <RunDetailPage runId={entId} {...props} />
+      case 'task':         return <TaskDetailPage taskId={entId} isAttempt={selectedEntity?.isAttempt} {...props} />
       case 'workflow':     return <AgentWorkflowPage {...props} />
-      case 'target-repo':  return <TargetRepositoryPage {...props} />
-      case 'tools':        return <ToolsPage {...props} />
+      case 'target-repo':  return <TargetRepositoryPage repoId={entId} {...props} />
+      case 'tools':        return <ToolsPage selectedToolName={entId} {...props} />
       case 'dag':          return <TaskDAGPage {...props} />
       case 'repo':         return <RepositoryGraphPage {...props} />
-      case 'agents':       return <AgentPanelPage {...props} />
+      case 'agents':       return <AgentsPage {...props} />
+      case 'decisions':    return <DecisionsPage {...props} />
+      case 'question':     return <DecisionsPage {...props} />
       case 'hypothesis':   return <HypothesisPanelPage {...props} />
-      case 'evidence':     return <EvidenceViewerPage {...props} />
+      case 'evidence':     return <EvidenceViewerPage selectedEvidenceId={entId} {...props} />
       case 'timeline':     return <TimelinePage {...props} />
-      case 'dossier':      return <FindingDossierPage {...props} />
+      case 'dossier':      return <FindingDossierPage selectedFindingId={entId} {...props} />
       case 'intel':        return <GlobalIntelligencePage {...props} />
+      case 'verification-plan': return <VerificationPlanPage planId={entId} {...props} />
+      case 'context-fabric':    return <ContextFabricPage {...props} />
+      case 'closure':           return <ClosurePage planId={entId} {...props} />
+      case 'specifications':    return <SpecificationsPage specId={entId} {...props} />
+      case 'policies':          return <PoliciesPage policyId={entId} {...props} />
       case 'settings':     return <SettingsPage {...props} />
-      default:             return <RunOverviewPage {...props} />
+      default:             return <TargetRepositoryPage {...props} />
     }
   }
 
@@ -1582,8 +1776,8 @@ export default function App() {
         {/* Logo block */}
         <div className="logo-block">
           <div>
-            <div className="logo">LLMorch</div>
-            <div className="logo-sub">Security Research Console</div>
+            <div className="logo">LLMORCH</div>
+            <div className="logo-sub">SoC Verification Console</div>
           </div>
         </div>
 
@@ -1705,6 +1899,10 @@ export default function App() {
             </button>
           )}
 
+          <button id="btn-create-task" className="btn btn-secondary btn-sm" onClick={() => setIsCreateTaskOpen(true)}>
+            + Create Task
+          </button>
+
           {!currentRun && (
             <button className="btn btn-primary btn-sm" onClick={() => setPage('target-repo')}>
               New Investigation
@@ -1734,10 +1932,29 @@ export default function App() {
           onCancel={() => setShowEmergencyModal(false)}
         />
       )}
+      {isCreateTaskOpen && (
+        <CreateTaskModal
+          isOpen={isCreateTaskOpen}
+          onClose={() => setIsCreateTaskOpen(false)}
+          onTaskCreated={(newTask) => {
+            setRefreshSignal(s => s + 1)
+            if (newTask?.task_id) {
+              setPage('task', { entityId: newTask.task_id })
+            }
+          }}
+        />
+      )}
 
       <div className="app-body">
-        {/* ── Sidebar ───────────────────────────────────────────────────────── */}
-        <nav className="sidebar">
+        {/* ── Sidebar (User Resizable) ───────────────────────────────────────── */}
+        <nav
+          className="sidebar"
+          style={{
+            width: `${sidebarWidth}px`,
+            minWidth: `${sidebarWidth}px`,
+            maxWidth: `${sidebarWidth}px`,
+          }}
+        >
           {NAV_SECTIONS.map(section => (
             <div key={section.label} className="sidebar-section">
               <div className="sidebar-label">{section.label}</div>
@@ -1756,11 +1973,181 @@ export default function App() {
           ))}
         </nav>
 
-        {/* ── Main Content ──────────────────────────────────────────────────── */}
+        {/* ── Vertical Resize Handle for Sidebar ──────────────────────────────── */}
+        <div
+          onMouseDown={handleSidebarResizeStart}
+          title="Drag to resize navigation sidebar"
+          style={{
+            width: 6,
+            cursor: 'col-resize',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            userSelect: 'none',
+            flexShrink: 0,
+            background: 'transparent',
+            zIndex: 10,
+          }}
+          className="sidebar-resizer"
+        >
+          <div style={{ width: 1, height: '100%', background: 'var(--border)' }} />
+        </div>
+
+        {/* ── Main Content Workspace ────────────────────────────────────────── */}
         <main className="main-content">
           {renderPage()}
         </main>
+
+        {/* ── Right Execution Inspector (Section 8 & 31) ─────────────────────── */}
+        {showInspector && (
+          <>
+            <div
+              onMouseDown={handleInspectorResizeStart}
+              title="Drag to resize inspector pane"
+              style={{
+                width: 6,
+                cursor: 'col-resize',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                userSelect: 'none',
+                flexShrink: 0,
+                background: 'transparent',
+                zIndex: 10,
+              }}
+              className="pane-resizer"
+            >
+              <div style={{ width: 1, height: '100%', background: 'var(--border)' }} />
+            </div>
+
+            <aside
+              className="inspector-pane"
+              style={{
+                width: `${inspectorWidth}px`,
+                minWidth: `${inspectorWidth}px`,
+                maxWidth: `${inspectorWidth}px`,
+              }}
+            >
+              <div className="inspector-header">
+                <span>Execution Inspector</span>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setShowInspector(false)
+                    localStorage.setItem('llmorch_show_inspector', 'false')
+                  }}
+                  title="Close Inspector"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="inspector-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                    Active Target Context
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>
+                    {currentRun?.repository_name || 'OpenTitan SoC'}
+                  </div>
+                  <div className="mono text-muted" style={{ fontSize: 10 }}>
+                    {currentRun?.run_id || 'STANDBY'}
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border-dim)', paddingTop: 8 }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Realtime Events (Observable)
+                  </div>
+                  {eventLog.length === 0 ? (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      Awaiting live execution events...
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 360, overflowY: 'auto' }}>
+                      {eventLog.slice(0, 15).map((evt, idx) => (
+                        <div key={idx} style={{
+                          padding: '4px 6px', background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)',
+                          borderRadius: 2, fontSize: 10, fontFamily: 'var(--font-mono)'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--blue)', fontWeight: 600 }}>
+                            <span>{evt.event_type || evt.type || 'EVENT'}</span>
+                            <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+                              {evt.timestamp ? new Date(evt.timestamp).toLocaleTimeString() : 'now'}
+                            </span>
+                          </div>
+                          {evt.message && (
+                            <div style={{ color: 'var(--text-secondary)', marginTop: 2 }}>{evt.message}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border-dim)', paddingTop: 8 }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Executors
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--blue)', fontWeight: 600 }}>AGY (CLI):</span>
+                      <span style={{ color: 'var(--green)' }}>READY</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--blue)', fontWeight: 600 }}>Codex:</span>
+                      <span style={{ color: 'var(--green)' }}>READY</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--red)', fontWeight: 600 }}>Claude:</span>
+                      <span style={{ color: 'var(--red)' }}>DISABLED</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </>
+        )}
       </div>
+
+      {/* ── Bottom Execution Status Bar (Section 8) ───────────────────────── */}
+      <footer className="bottom-status-bar">
+        <div className="bsb-item">
+          <span style={{ color: 'var(--text-muted)' }}>TARGET:</span>
+          <span className="mono" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+            {currentRun?.repository_name || 'OpenTitan'}
+          </span>
+        </div>
+        <div className="bsb-item">
+          <span style={{ color: 'var(--text-muted)' }}>RUN:</span>
+          <span className="mono">{currentRun?.run_id || 'STANDBY'}</span>
+        </div>
+        <div className="bsb-item">
+          <span style={{ color: 'var(--text-muted)' }}>EXECUTOR:</span>
+          <span className="mono" style={{ color: 'var(--blue)', fontWeight: 600 }}>
+            AGY [PID 18294]
+          </span>
+        </div>
+        <div className="bsb-item">
+          <span style={{ color: 'var(--text-muted)' }}>REALTIME:</span>
+          <span className="mono" style={{ color: wsConnected ? 'var(--green)' : 'var(--red)' }}>
+            {wsConnected ? 'CONNECTED' : 'DISCONNECTED'}
+          </span>
+        </div>
+        <div className="bsb-item" style={{ marginLeft: 'auto' }}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              const next = !showInspector
+              setShowInspector(next)
+              localStorage.setItem('llmorch_show_inspector', next.toString())
+            }}
+            style={{ fontSize: 10, padding: '2px 6px' }}
+          >
+            {showInspector ? 'Hide Inspector ▶' : '◀ Show Inspector'}
+          </button>
+        </div>
+      </footer>
     </div>
   )
 }

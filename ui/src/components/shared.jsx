@@ -1,6 +1,6 @@
 /**
- * shared.jsx — Shared utilities, constants, and micro-components used across
- * the Phase 9.3 analyst console.
+ * shared.jsx — Shared utilities, constants, and micro-components
+ * Enterprise EDA Workstation styling.
  */
 
 export function fmt(dt) {
@@ -17,89 +17,136 @@ export function fmtDuration(ms) {
 
 export function shortId(id) {
   if (!id) return '—'
-  return id.length > 16 ? id.slice(0, 10) + '…' : id
+  return id.length > 18 ? id.slice(0, 12) + '…' : id
+}
+
+export function fmtElapsed(seconds) {
+  if (seconds == null || isNaN(seconds)) return '0:00'
+  const sTotal = Math.max(0, Math.floor(seconds))
+  const h = Math.floor(sTotal / 3600)
+  const m = Math.floor((sTotal % 3600) / 60)
+  const s = Math.floor(sTotal % 60)
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+export function StatusBadge({ status }) {
+  const s = (status || 'unknown').toLowerCase().replace(/ /g, '_')
+  return <span className={`badge badge-${s}`}>{status || '—'}</span>
 }
 
 export function Mono({ children, style }) {
-  return <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', ...style }}>{children}</span>
+  return <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-code)', ...style }}>{children}</span>
+}
+
+export const STATUS_STYLE = {
+  RUNNING:      { bg: 'var(--blue-bg)', text: 'var(--blue)', border: 'var(--blue-border)' },
+  IN_PROGRESS:  { bg: 'var(--blue-bg)', text: 'var(--blue)', border: 'var(--blue-border)' },
+  ANALYZING:    { bg: 'var(--blue-bg)', text: 'var(--blue)', border: 'var(--blue-border)' },
+  COMPLETED:    { bg: 'var(--green-bg)', text: 'var(--green)', border: 'var(--green-border)' },
+  DONE:         { bg: 'var(--green-bg)', text: 'var(--green)', border: 'var(--green-border)' },
+  COVERED:      { bg: 'var(--green-bg)', text: 'var(--green)', border: 'var(--green-border)' },
+  READY:        { bg: 'var(--green-bg)', text: 'var(--green)', border: 'var(--green-border)' },
+  AVAILABLE:    { bg: 'var(--green-bg)', text: 'var(--green)', border: 'var(--green-border)' },
+  PAUSED:       { bg: 'var(--amber-bg)', text: 'var(--amber)', border: 'var(--amber-border)' },
+  PARTIAL:      { bg: 'var(--amber-bg)', text: 'var(--amber)', border: 'var(--amber-border)' },
+  PENDING:      { bg: 'var(--amber-bg)', text: 'var(--amber)', border: 'var(--amber-border)' },
+  FAILED:       { bg: 'var(--red-bg)', text: 'var(--red)', border: 'var(--red-border)' },
+  ERROR:        { bg: 'var(--red-bg)', text: 'var(--red)', border: 'var(--red-border)' },
+  BLOCKED:      { bg: 'var(--red-bg)', text: 'var(--red)', border: 'var(--red-border)' },
+  STOPPED:      { bg: 'var(--gray-bg)', text: 'var(--gray)', border: 'var(--gray-border)' },
+  DISABLED:     { bg: 'var(--gray-bg)', text: 'var(--gray)', border: 'var(--gray-border)' },
+  UNKNOWN:      { bg: 'var(--gray-bg)', text: 'var(--gray)', border: 'var(--gray-border)' },
 }
 
 export const STATUS_COLOR = {
-  PENDING:      '#94a3b8',
-  QUEUED:       '#94a3b8',
-  RUNNING:      '#38bdf8',
-  IN_PROGRESS:  '#38bdf8',
-  ANALYZING:    '#38bdf8',
-  COMPLETED:    '#4ade80',
-  DONE:         '#4ade80',
-  FAILED:       '#f87171',
-  ERROR:        '#f87171',
-  BLOCKED:      '#fb923c',
-  SKIPPED:      '#a78bfa',
-  AVAILABLE:    '#4ade80',
-  IN_USE:       '#38bdf8',
-  DISABLED:     '#64748b',
-  VALIDATED:    '#4ade80',
-  REPRODUCED:   '#a3e635',
-  DRAFT:        '#fbbf24',
-  REJECTED:     '#f87171',
-  INCONCLUSIVE: '#94a3b8',
-}
-
-export const SEVERITY_COLOR = {
-  CRITICAL: '#ef4444',
-  HIGH:     '#f97316',
-  MEDIUM:   '#eab308',
-  LOW:      '#22c55e',
-  INFO:     '#3b82f6',
+  PENDING:      '#57606a',
+  QUEUED:       '#57606a',
+  RUNNING:      '#0969da',
+  IN_PROGRESS:  '#0969da',
+  ANALYZING:    '#0969da',
+  COMPLETED:    '#1a7f37',
+  DONE:         '#1a7f37',
+  FAILED:       '#cf222e',
+  ERROR:        '#cf222e',
+  BLOCKED:      '#9a6700',
+  SKIPPED:      '#8250df',
+  AVAILABLE:    '#1a7f37',
+  IN_USE:       '#0969da',
+  DISABLED:     '#57606a',
+  VALIDATED:    '#1a7f37',
+  REPRODUCED:   '#8250df',
+  DRAFT:        '#9a6700',
+  REJECTED:     '#cf222e',
+  INCONCLUSIVE: '#57606a',
 }
 
 export function StatusPill({ status, style }) {
-  const color = STATUS_COLOR[status?.toUpperCase()] || '#94a3b8'
+  const st = (status || 'UNKNOWN').toUpperCase()
+  const conf = STATUS_STYLE[st] || STATUS_STYLE.UNKNOWN
   return (
     <span style={{
-      display:'inline-flex',alignItems:'center',gap:4,
-      padding:'2px 8px',borderRadius:999,fontSize:10,fontWeight:600,
-      background:color+'22',color,border:`1px solid ${color}55`,
-      letterSpacing:'0.04em',textTransform:'uppercase', ...style,
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      padding: '1px 6px', borderRadius: 'var(--radius-sm)', fontSize: 10, fontWeight: 600,
+      background: conf.bg, color: conf.text, border: `1px solid ${conf.border}`,
+      letterSpacing: '0.03em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', ...style,
     }}>
-      <span style={{width:6,height:6,borderRadius:'50%',background:color,flexShrink:0}}/>
-      {status||'unknown'}
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: conf.text, flexShrink: 0 }} />
+      {status || 'UNKNOWN'}
     </span>
   )
 }
 
+export const SEVERITY_STYLE = {
+  CRITICAL: { bg: '#ffebe9', text: '#cf222e', border: '#ff8182' },
+  HIGH:     { bg: '#ffebe9', text: '#cf222e', border: '#ff8182' },
+  MEDIUM:   { bg: '#fff8c5', text: '#9a6700', border: '#d4a72c' },
+  LOW:      { bg: '#dafbe1', text: '#1a7f37', border: '#4ac26b' },
+  INFO:     { bg: '#ddf4ff', text: '#0969da', border: '#54aeff' },
+}
+
+export const SEVERITY_COLOR = {
+  CRITICAL: '#cf222e',
+  HIGH:     '#cf222e',
+  MEDIUM:   '#9a6700',
+  LOW:      '#1a7f37',
+  INFO:     '#0969da',
+}
+
 export function SeverityBadge({ severity }) {
-  const c = SEVERITY_COLOR[severity?.toUpperCase()] || '#94a3b8'
   if (!severity) return null
+  const s = severity.toUpperCase()
+  const conf = SEVERITY_STYLE[s] || { bg: '#f6f8fa', text: '#57606a', border: '#d0d7de' }
   return (
     <span style={{
-      padding:'1px 6px',borderRadius:4,fontSize:10,fontWeight:700,
-      background:c+'22',color:c,border:`1px solid ${c}44`,
+      padding: '1px 5px', borderRadius: 'var(--radius-sm)', fontSize: 10, fontWeight: 700,
+      background: conf.bg, color: conf.text, border: `1px solid ${conf.border}`,
+      fontFamily: 'var(--font-mono)', letterSpacing: '0.04em', textTransform: 'uppercase'
     }}>{severity}</span>
   )
 }
 
-export function Spinner({ size = 20 }) {
+export function Spinner({ size = 16 }) {
   return (
     <div style={{
-      width:size,height:size,border:`2px solid var(--border)`,
-      borderTopColor:'var(--accent-blue)',borderRadius:'50%',
-      animation:'spin 0.7s linear infinite',display:'inline-block',
-    }}/>
+      width: size, height: size, border: `2px solid var(--border)`,
+      borderTopColor: 'var(--blue)', borderRadius: '50%',
+      animation: 'spin 0.6s linear infinite', display: 'inline-block',
+    }} />
   )
 }
 
-export function EmptyState({ icon='🔍', title='No data', subtitle='' }) {
+export function EmptyState({ icon = '🔍', title = 'No data', subtitle = '' }) {
   return (
     <div style={{
-      display:'flex',flexDirection:'column',alignItems:'center',
-      justifyContent:'center',padding:'48px 24px',gap:12,
-      color:'var(--text-muted)',textAlign:'center',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', padding: '36px 16px', gap: 8,
+      color: 'var(--text-muted)', textAlign: 'center', background: 'var(--bg-surface)',
+      border: '1px dashed var(--border)', borderRadius: 'var(--radius)'
     }}>
-      <div style={{fontSize:40}}>{icon}</div>
-      <div style={{fontSize:14,fontWeight:600,color:'var(--text-secondary)'}}>{title}</div>
-      {subtitle&&<div style={{fontSize:12,maxWidth:320,lineHeight:1.6}}>{subtitle}</div>}
+      <div style={{ fontSize: 24, opacity: 0.6 }}>{icon}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{title}</div>
+      {subtitle && <div style={{ fontSize: 11, maxWidth: 360, lineHeight: 1.5, color: 'var(--text-secondary)' }}>{subtitle}</div>}
     </div>
   )
 }
@@ -107,50 +154,36 @@ export function EmptyState({ icon='🔍', title='No data', subtitle='' }) {
 export function SectionHeader({ title, subtitle, actions }) {
   return (
     <div style={{
-      display:'flex',justifyContent:'space-between',alignItems:'flex-start',
-      gap:12,marginBottom:16,flexWrap:'wrap',
+      display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+      gap: 12, marginBottom: 12, flexWrap: 'wrap',
     }}>
       <div>
         <div className="page-title">{title}</div>
-        {subtitle&&<div className="page-subtitle">{subtitle}</div>}
+        {subtitle && <div className="page-subtitle">{subtitle}</div>}
       </div>
-      {actions&&<div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>{actions}</div>}
+      {actions && <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>{actions}</div>}
     </div>
   )
 }
 
-export function Btn({ onClick, children, variant='secondary', size='sm', disabled, style }) {
-  const variants = {
-    primary:  { background:'var(--accent-blue)',color:'#fff',border:'none' },
-    secondary:{ background:'var(--bg-elevated)',color:'var(--text-secondary)',border:'1px solid var(--border)' },
-    danger:   { background:'#ef444422',color:'#f87171',border:'1px solid #ef444444' },
-    ghost:    { background:'transparent',color:'var(--text-muted)',border:'1px solid var(--border)' },
-    success:  { background:'#4ade8022',color:'#4ade80',border:'1px solid #4ade8044' },
-    warning:  { background:'#f59e0b22',color:'#fbbf24',border:'1px solid #f59e0b44' },
-  }
-  const sizes = {
-    xs: { padding:'3px 8px',fontSize:10,borderRadius:5 },
-    sm: { padding:'5px 12px',fontSize:11,borderRadius:6 },
-    md: { padding:'7px 16px',fontSize:12,borderRadius:7 },
-  }
+export function Btn({ onClick, children, variant = 'secondary', size = 'sm', disabled, style, id }) {
+  const cls = `btn btn-${variant} btn-${size}`
   return (
-    <button onClick={onClick} disabled={disabled} style={{
-      ...variants[variant],...sizes[size],
-      fontWeight:600,cursor:disabled?'not-allowed':'pointer',
-      opacity:disabled?0.5:1,transition:'all .15s',
-      ...style,
-    }}>{children}</button>
+    <button id={id} className={cls} onClick={onClick} disabled={disabled} style={style}>
+      {children}
+    </button>
   )
 }
 
-export function Card({ children, style, onClick }) {
+export function Card({ children, style, onClick, className }) {
   return (
     <div
       onClick={onClick}
+      className={`panel ${className || ''}`}
       style={{
-        background:'var(--bg-panel)',border:'1px solid var(--border)',
-        borderRadius:10,padding:16,...style,
-        cursor:onClick?'pointer':'default',
+        padding: 12,
+        cursor: onClick ? 'pointer' : 'default',
+        ...style,
       }}
     >{children}</div>
   )

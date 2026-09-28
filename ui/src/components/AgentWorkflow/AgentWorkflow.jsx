@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import api from '../../api'
 import { WorkflowGraph } from './WorkflowGraph'
 import { AgentWorkroom } from './AgentWorkroom'
@@ -18,6 +18,18 @@ export function AgentWorkflowPage({ refreshSignal, onNavigate, currentRun }) {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('ALL')
   const [selectedNode, setSelectedNode] = useState(null)
+
+  // Resizable Right Activity Stream state
+  const [activityWidth, setActivityWidth] = useState(() => {
+    const saved = localStorage.getItem('llmorch_activity_width')
+    return saved ? Math.max(240, Math.min(480, parseInt(saved, 10))) : 320
+  })
+
+  // Resizable Bottom Decision Inbox state
+  const [decisionHeight, setDecisionHeight] = useState(() => {
+    const saved = localStorage.getItem('llmorch_decision_height')
+    return saved ? Math.max(80, Math.min(420, parseInt(saved, 10))) : 160
+  })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -42,6 +54,44 @@ export function AgentWorkflowPage({ refreshSignal, onNavigate, currentRun }) {
     setSelectedNode({ data: nodeData, id: nodeData.label })
   }, [])
 
+  // Activity Stream vertical splitter drag
+  const handleActivityResizeStart = (e) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = activityWidth
+    const onMouseMove = (moveEvt) => {
+      // Dragging left increases right panel width: startW - (moveEvt.clientX - startX)
+      const newW = Math.max(240, Math.min(480, startW - (moveEvt.clientX - startX)))
+      setActivityWidth(newW)
+      localStorage.setItem('llmorch_activity_width', newW.toString())
+    }
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }
+
+  // Decision Inbox horizontal splitter drag
+  const handleDecisionResizeStart = (e) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = decisionHeight
+    const onMouseMove = (moveEvt) => {
+      // Dragging up increases bottom panel height: startH - (moveEvt.clientY - startY)
+      const newH = Math.max(80, Math.min(420, startH - (moveEvt.clientY - startY)))
+      setDecisionHeight(newH)
+      localStorage.setItem('llmorch_decision_height', newH.toString())
+    }
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }
+
   const hasActiveTasks = (tasks?.items || []).some(t =>
     ['RUNNING', 'IN_PROGRESS', 'ANALYZING', 'PENDING'].includes(t.status?.toUpperCase()))
 
@@ -57,7 +107,7 @@ export function AgentWorkflowPage({ refreshSignal, onNavigate, currentRun }) {
   )
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', gap: 6 }}>
       {/* Header */}
       <div style={{ flexShrink: 0 }}>
         <SectionHeader
@@ -128,8 +178,8 @@ export function AgentWorkflowPage({ refreshSignal, onNavigate, currentRun }) {
         </div>
       </div>
 
-      {/* Main split view: Workflow Graph (Left/Center) + Agent Activity Stream (RIGHT) */}
-      <div style={{ flex: 1, display: 'flex', gap: 10, overflow: 'hidden', minHeight: 0 }}>
+      {/* Main split view: Workflow Graph (Left/Center) + Draggable Splitter + Agent Activity Stream (RIGHT) */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
         {/* Dynamic graph canvas */}
         <div style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', minHeight: 0, position: 'relative' }}>
           {!hasAnyTasks ? (
@@ -179,8 +229,27 @@ export function AgentWorkflowPage({ refreshSignal, onNavigate, currentRun }) {
           )}
         </div>
 
+        {/* Draggable Vertical Splitter between workflow graph and activity panel */}
+        <div
+          onMouseDown={handleActivityResizeStart}
+          title="Drag to resize activity stream"
+          style={{
+            width: 8,
+            cursor: 'col-resize',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            userSelect: 'none',
+            flexShrink: 0,
+          }}
+          className="splitter-v"
+        >
+          <div style={{ width: 2, height: 32, background: 'var(--border)', borderRadius: 1 }} />
+        </div>
+
         {/* Agent Activity Stream (RIGHT side) */}
         <AgentActivityStream
+          width={activityWidth}
           runId={currentRun?.run_id}
           refreshSignal={refreshSignal}
           onSelectEntity={(type, id) => {
@@ -191,8 +260,32 @@ export function AgentWorkflowPage({ refreshSignal, onNavigate, currentRun }) {
         />
       </div>
 
+      {/* Draggable Horizontal Splitter above Decision Inbox */}
+      <div
+        onMouseDown={handleDecisionResizeStart}
+        title="Drag to resize decision inbox"
+        style={{
+          height: 8,
+          cursor: 'row-resize',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          userSelect: 'none',
+          flexShrink: 0,
+        }}
+        className="splitter-h"
+      >
+        <div style={{ height: 2, width: 48, background: 'var(--border)', borderRadius: 1 }} />
+      </div>
+
       {/* Human-in-the-Loop Analyst Decisions / Decision Inbox (BOTTOM) */}
-      <div style={{ flexShrink: 0 }}>
+      <div style={{
+        height: `${decisionHeight}px`,
+        minHeight: '80px',
+        maxHeight: '420px',
+        overflowY: 'auto',
+        flexShrink: 0,
+      }}>
         <AnalystDecisionInbox
           runId={currentRun?.run_id}
           refreshSignal={refreshSignal}
@@ -202,4 +295,3 @@ export function AgentWorkflowPage({ refreshSignal, onNavigate, currentRun }) {
     </div>
   )
 }
-

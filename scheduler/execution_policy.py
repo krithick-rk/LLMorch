@@ -86,6 +86,19 @@ class ExecutionPolicy:
                 details={"agent_id": agent_id, "reason": reason}
             )
 
+    def is_agent_permitted(self, agent_id: str) -> bool:
+        """Returns True if agent is permitted to execute, False if blocked by policy."""
+        if "claude" in agent_id.lower() and not self.allow_real_claude_execution:
+            return False
+        return self.is_agent_executable(agent_id)
+
+    def assert_agent_permitted(self, agent_id: str) -> None:
+        """Asserts agent is permitted; raises PermissionError if Claude or disabled."""
+        if "claude" in agent_id.lower() and not self.allow_real_claude_execution:
+            raise PermissionError("Claude execution strictly forbidden (DISABLED BY POLICY).")
+        if not self.is_agent_executable(agent_id):
+            raise PermissionError(f"Agent '{agent_id}' is not permitted to execute.")
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "enabled_agents": sorted(list(self.enabled_agents)),

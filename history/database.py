@@ -59,7 +59,8 @@ class DatabaseService:
 
     def __init__(self, db_path: Optional[str] = None):
         self._lock = threading.RLock()
-        if db_path is None or db_path == ":memory:":
+        effective_path = db_path if db_path is not None else get_db_path()
+        if effective_path == ":memory:":
             self.db_path = ":memory:"
             self._is_memory = True
             self._conn = sqlite3.connect(":memory:", check_same_thread=False)
@@ -67,7 +68,7 @@ class DatabaseService:
             self._conn.execute("PRAGMA foreign_keys = ON;")
         else:
             self._is_memory = False
-            self.db_path = str(Path(db_path).resolve())
+            self.db_path = str(Path(effective_path).resolve())
             os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
             self._conn = None
 
@@ -76,10 +77,20 @@ class DatabaseService:
     def get_connection(self):
         if self._is_memory:
             return ConnectionContext(self._conn, self._lock)
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
+        try:
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA busy_timeout = 30000;")
+        except Exception:
+            pass
         return conn
+
+    def execute_write(self, sql: str, params: tuple = ()) -> None:
+        with self.get_connection() as conn:
+            conn.execute(sql, params)
+            conn.commit()
 
     def _init_db(self) -> None:
         """Initializes tables for Phase 0–7 data contracts."""
@@ -1084,6 +1095,22 @@ class DatabaseService:
             );
             """)
 
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                message_id TEXT PRIMARY KEY,
+                conversation_type TEXT NOT NULL,
+                task_id TEXT,
+                run_id TEXT,
+                sender_type TEXT NOT NULL,
+                sender_name TEXT NOT NULL,
+                message_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                metadata TEXT DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+            """)
+
+
             # Safe Phase 9.3 migrations
             _p93_migrations = [
                 "ALTER TABLE findings ADD COLUMN affected_analysis_unit TEXT",
@@ -1168,8 +1195,265 @@ class DatabaseService:
                 except Exception:
                     pass
 
+            # SoC Verification Platform Migrations
+            _soc_table_definitions = [
+                """
+                CREATE TABLE IF NOT EXISTS specifications (
+                    spec_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    document_type TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    revision TEXT DEFAULT '1.0',
+                    sections_count INTEGER DEFAULT 0,
+                    requirements_extracted INTEGER DEFAULT 0,
+                    extracted_claims TEXT DEFAULT '[]',
+                    assumptions TEXT DEFAULT '[]',
+                    content_hash TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS requirements (
+                    requirement_id TEXT PRIMARY KEY,
+                    spec_id TEXT,
+                    section TEXT DEFAULT 'General',
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    primary_bucket TEXT NOT NULL,
+                    affected_components TEXT DEFAULT '[]',
+                    is_security_critical INTEGER DEFAULT 1,
+                    claims TEXT DEFAULT '[]',
+                    assumptions TEXT DEFAULT '[]',
+                    provenance TEXT,
+                    status TEXT DEFAULT 'IDENTIFIED',
+                    created_at TEXT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS soc_components (
+                    component_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    component_type TEXT NOT NULL,
+                    clock_domain TEXT,
+                    reset_domain TEXT,
+                    power_domain TEXT,
+                    security_tier TEXT DEFAULT 'STANDARD',
+                    source_files TEXT DEFAULT '[]',
+                    interfaces TEXT DEFAULT '[]',
+                    registers TEXT DEFAULT '[]',
+                    created_at TEXT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS interface_contracts (
+                    contract_id TEXT PRIMARY KEY,
+                    source_component_id TEXT NOT NULL,
+                    target_component_id TEXT NOT NULL,
+                    interface_type TEXT NOT NULL,
+                    signals TEXT DEFAULT '[]',
+                    clock_crossing INTEGER DEFAULT 0,
+                    reset_crossing INTEGER DEFAULT 0,
+                    security_boundary INTEGER DEFAULT 0,
+                    notes TEXT
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS security_assets (
+                    asset_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    asset_type TEXT NOT NULL,
+                    locations TEXT DEFAULT '[]',
+                    confidentiality INTEGER DEFAULT 1,
+                    integrity INTEGER DEFAULT 1,
+                    availability INTEGER DEFAULT 1,
+                    threat_description TEXT
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS threat_models (
+                    threat_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    asset_id TEXT,
+                    actor TEXT NOT NULL,
+                    entry_point TEXT NOT NULL,
+                    trust_boundary TEXT NOT NULL,
+                    capability TEXT NOT NULL,
+                    abuse_case TEXT NOT NULL,
+                    assumptions TEXT DEFAULT '[]',
+                    mitigations TEXT DEFAULT '[]'
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS verification_objectives (
+                    objective_id TEXT PRIMARY KEY,
+                    requirement_id TEXT,
+                    bucket TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    statement TEXT NOT NULL,
+                    target_components TEXT DEFAULT '[]',
+                    verification_method TEXT NOT NULL,
+                    status TEXT DEFAULT 'PROPOSED',
+                    created_at TEXT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS verification_scenarios (
+                    scenario_id TEXT PRIMARY KEY,
+                    objective_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    stimulus TEXT NOT NULL,
+                    preconditions TEXT NOT NULL,
+                    expected_behavior TEXT NOT NULL,
+                    target_components TEXT DEFAULT '[]',
+                    risk_rationale TEXT NOT NULL,
+                    status TEXT DEFAULT 'PLANNED'
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS verification_plans (
+                    plan_id TEXT PRIMARY KEY,
+                    version INTEGER DEFAULT 1,
+                    repository_path TEXT NOT NULL,
+                    repository_name TEXT NOT NULL,
+                    scope_description TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    buckets_applicability TEXT DEFAULT '{}',
+                    total_requirements INTEGER DEFAULT 0,
+                    total_objectives INTEGER DEFAULT 0,
+                    total_work_packages INTEGER DEFAULT 0,
+                    total_estimated_tokens INTEGER DEFAULT 0,
+                    total_estimated_duration_seconds INTEGER DEFAULT 0,
+                    cost_tier TEXT DEFAULT 'MODERATE',
+                    recommendation_mode TEXT DEFAULT 'RECOMMEND_EXECUTION',
+                    replan_reason TEXT,
+                    parent_plan_id TEXT,
+                    created_by TEXT DEFAULT 'Supervisor',
+                    created_at TEXT NOT NULL,
+                    approved_by TEXT,
+                    approved_at TEXT
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS work_packages (
+                    package_id TEXT PRIMARY KEY,
+                    plan_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    bucket TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    objective_ids TEXT DEFAULT '[]',
+                    target_files TEXT DEFAULT '[]',
+                    dependencies TEXT DEFAULT '[]',
+                    estimated_tokens INTEGER DEFAULT 25000,
+                    estimated_duration_seconds INTEGER DEFAULT 120,
+                    cost_tier TEXT DEFAULT 'MODERATE',
+                    recommendation_mode TEXT DEFAULT 'RECOMMEND_EXECUTION',
+                    status TEXT DEFAULT 'PROPOSED',
+                    assigned_agent_id TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS coverage_items (
+                    item_id TEXT PRIMARY KEY,
+                    plan_id TEXT NOT NULL,
+                    bucket TEXT NOT NULL,
+                    requirement_id TEXT,
+                    objective_id TEXT,
+                    scenario_id TEXT,
+                    coverage_state TEXT NOT NULL DEFAULT 'UNCOVERED',
+                    evidence_ids TEXT DEFAULT '[]',
+                    waiver_reason TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS gaps (
+                    gap_id TEXT PRIMARY KEY,
+                    plan_id TEXT NOT NULL,
+                    bucket TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    severity TEXT NOT NULL DEFAULT 'MEDIUM',
+                    requirement_id TEXT,
+                    recommended_action TEXT NOT NULL,
+                    status TEXT DEFAULT 'OPEN',
+                    created_at TEXT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS policy_candidates (
+                    policy_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    policy_rule TEXT NOT NULL,
+                    domain TEXT DEFAULT 'SoC Security',
+                    threat_model_ref TEXT,
+                    supporting_evidence_ids TEXT DEFAULT '[]',
+                    status TEXT DEFAULT 'CANDIDATE',
+                    author_role TEXT DEFAULT 'Policy Generation',
+                    provenance TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS closure_snapshots (
+                    snapshot_id TEXT PRIMARY KEY,
+                    plan_id TEXT NOT NULL,
+                    run_id TEXT,
+                    requirement_coverage_pct REAL DEFAULT 0.0,
+                    objective_coverage_pct REAL DEFAULT 0.0,
+                    total_requirements INTEGER DEFAULT 0,
+                    covered_requirements INTEGER DEFAULT 0,
+                    total_objectives INTEGER DEFAULT 0,
+                    covered_objectives INTEGER DEFAULT 0,
+                    open_gaps_count INTEGER DEFAULT 0,
+                    waivers_count INTEGER DEFAULT 0,
+                    evidence_items_count INTEGER DEFAULT 0,
+                    is_closed INTEGER DEFAULT 0,
+                    sign_off_by TEXT,
+                    sign_off_notes TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """,
+            ]
+
+            for table_sql in _soc_table_definitions:
+                try:
+                    cursor.execute(table_sql)
+                except Exception:
+                    pass
+
+            _soc_column_migrations = [
+                "ALTER TABLE tasks ADD COLUMN plan_id TEXT",
+                "ALTER TABLE tasks ADD COLUMN work_package_id TEXT",
+                "ALTER TABLE tasks ADD COLUMN bucket TEXT",
+                "ALTER TABLE tasks ADD COLUMN failure_reason TEXT",
+                "ALTER TABLE tasks ADD COLUMN suggested_action TEXT",
+                "ALTER TABLE tasks ADD COLUMN override_reason TEXT",
+                "ALTER TABLE tasks ADD COLUMN watchdog_status TEXT DEFAULT 'NORMAL'",
+                "ALTER TABLE tasks ADD COLUMN last_heartbeat_at TEXT",
+                "ALTER TABLE tasks ADD COLUMN heartbeat_at TEXT",
+                "ALTER TABLE task_attempts ADD COLUMN start_time TEXT",
+                "ALTER TABLE task_attempts ADD COLUMN heartbeat_time TEXT",
+                "ALTER TABLE task_attempts ADD COLUMN end_time TEXT",
+                "ALTER TABLE task_attempts ADD COLUMN commands TEXT DEFAULT '[]'",
+                "ALTER TABLE task_attempts ADD COLUMN artifacts TEXT DEFAULT '[]'",
+                "ALTER TABLE task_attempts ADD COLUMN logs TEXT DEFAULT '[]'",
+                "ALTER TABLE task_attempts ADD COLUMN errors TEXT DEFAULT '[]'",
+                "ALTER TABLE task_attempts ADD COLUMN failure_reason TEXT",
+                "ALTER TABLE task_attempts ADD COLUMN failure_code TEXT",
+                "ALTER TABLE task_attempts ADD COLUMN analyst_modifications TEXT",
+                "ALTER TABLE runs ADD COLUMN plan_id TEXT",
+                "ALTER TABLE runs ADD COLUMN preflight_status TEXT",
+            ]
+            for col_sql in _soc_column_migrations:
+                try:
+                    cursor.execute(col_sql)
+                except Exception:
+                    pass
+
             conn.commit()
-            logger.info("Database schema initialized successfully (Phase 0-9.5 tables verified).")
+            logger.info("Database schema initialized successfully (SoC Verification tables verified).")
 
 
 def get_db_path() -> str:

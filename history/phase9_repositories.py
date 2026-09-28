@@ -693,8 +693,8 @@ class TaskAttemptRepository:
 
     def create_attempt(
         self,
-        task_id: str,
-        agent_id: str,
+        task_id: Union[str, Dict[str, Any]],
+        agent_id: Optional[str] = None,
         model_id: Optional[str] = None,
         role: str = "general_analysis",
         instruction_id: Optional[str] = None,
@@ -703,7 +703,23 @@ class TaskAttemptRepository:
         run_id: Optional[str] = None,
         approach: Optional[str] = None,
         hypothesis: Optional[str] = None,
+        **kwargs
     ) -> Dict[str, Any]:
+        if isinstance(task_id, dict):
+            d = task_id
+            return self.create_attempt(
+                task_id=d.get("task_id", ""),
+                agent_id=d.get("agent_id", "agent-agy-01"),
+                model_id=d.get("model_id"),
+                role=d.get("role", "general_analysis"),
+                instruction_id=d.get("instruction_id"),
+                parent_attempt_id=d.get("parent_attempt_id"),
+                parent_run_id=d.get("parent_run_id"),
+                run_id=d.get("run_id"),
+                approach=d.get("approach") or d.get("method"),
+                hypothesis=d.get("hypothesis"),
+            )
+        agent_id = agent_id or "agent-agy-01"
         with self.db.get_connection() as conn:
             count = conn.execute(
                 "SELECT COUNT(*) FROM task_attempts WHERE task_id = ?",
