@@ -1,70 +1,54 @@
 /**
- * WebSocket realtime hook.
- * Connects to /ws/events, handles RESYNC, maintains sequence tracking,
- * and triggers a callback when events arrive.
+ * WebSocket realtime hook for React components.
+ * Connects to the centralized `realtimeClient` singleton.
+ * Component rerenders or hook unmounts do NOT recreate or close the underlying WebSocket!
  */
-import { useEffect, useRef, useCallback, useState } from 'react';
-
-const WS_URL = `ws://${window.location.host}/ws/events`;
-const RECONNECT_DELAY_MS = 2500;
+import { useEffect, useState, useRef } from 'react';
+import { realtimeClient, RealtimeState } from './realtimeClient';
 
 export function useRealtimeEvents(onEvent) {
-  const wsRef = useRef(null);
-  const seqRef = useRef(0);
-  const timerRef = useRef(null);
-  const [connected, setConnected] = useState(false);
-
-  const connect = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-    }
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setConnected(true);
-      // Send ping every 25s to keep alive
-      timerRef.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send('{"type":"ping"}');
-        }
-      }, 25000);
-    };
-
-    ws.onmessage = (evt) => {
-      try {
-        const data = JSON.parse(evt.data);
-        if (data.event_type === 'RESYNC') {
-          // On RESYNC: client must refresh state from API
-          seqRef.current = data.sequence;
-          onEvent({ type: 'RESYNC', sequence: data.sequence });
-          return;
-        }
-        // Gap detection
-        if (data.sequence && seqRef.current > 0 && data.sequence !== seqRef.current + 1) {
-          onEvent({ type: 'GAP_DETECTED', expected: seqRef.current + 1, got: data.sequence });
-        }
-        seqRef.current = data.sequence || seqRef.current;
-        onEvent(data);
-      } catch {}
-    };
-
-    ws.onerror = () => setConnected(false);
-    ws.onclose = () => {
-      setConnected(false);
-      clearInterval(timerRef.current);
-      // Auto-reconnect
-      setTimeout(connect, RECONNECT_DELAY_MS);
-    };
-  }, [onEvent]);
+  const [state, setState] = useState(() => realtimeClient.getState());
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
 
   useEffect(() => {
-    connect();
-    return () => {
-      clearInterval(timerRef.current);
-      if (wsRef.current) wsRef.current.close();
-    };
-  }, [connect]);
+    // 1. Subscribe to state changes (debounced, stable)
+    const unsubState = realtimeClient.subscribeState((newState) => {
+      setState(newState);
+    });
 
-  return connected;
+    // 2. Subscribe to event stream without recreating socket
+    const unsubEvents = realtimeClient.subscribe((event) => {
+      if (onEventRef.current) {
+        onEventRef.current(event);
+      }
+    });
+
+    return () => {
+      unsubState();
+      unsubEvents();
+    };
+  }, []);
+
+  return state === RealtimeState.CONNECTED;
+}
+
+export function useRealtimeStatus() {
+  const [status, setStatus] = useState(() => ({
+    state: realtimeClient.getState(),
+    connectionId: realtimeClient.currentConnectionId,
+    isConnected: realtimeClient.isConnected(),
+  }));
+
+  useEffect(() => {
+    return realtimeClient.subscribeState((state, connectionId) => {
+      setStatus({
+        state,
+        connectionId,
+        isConnected: state === RealtimeState.CONNECTED,
+      });
+    });
+  }, []);
+
+  return status;
 }

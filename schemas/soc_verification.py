@@ -239,6 +239,12 @@ class VerificationPlan(BaseModel):
     scope_description: str
     status: PlanStatus = PlanStatus.DRAFT
     buckets_applicability: Dict[str, str] = Field(default_factory=dict)  # bucket -> APPLICABLE / NOT_APPLICABLE / UNKNOWN
+    applicability_reasons: Dict[str, str] = Field(default_factory=dict)  # bucket -> explicit rationale string
+    complexity_tier: Optional[str] = "MICRO"
+    intent_depth: Optional[str] = "QUICK"
+    repository_tokens: int = 0
+    planning_tokens: int = 0
+    execution_tokens: int = 0
     total_requirements: int = 0
     total_objectives: int = 0
     total_work_packages: int = 0

@@ -20,17 +20,31 @@ class ConnectionManager:
 
     def __init__(self) -> None:
         self._connections: Set[WebSocket] = set()
+        self._meta: Dict[WebSocket, Dict[str, Any]] = {}
         self._sequence: int = 0
+        self._counter: int = 0
         self._lock = asyncio.Lock()
 
-    async def connect(self, websocket: WebSocket) -> None:
+    async def connect(self, websocket: WebSocket, project_id: str | None = None) -> str:
         await websocket.accept()
         async with self._lock:
+            self._counter += 1
+            conn_id = f"WS-SRV-{self._counter}"
             self._connections.add(websocket)
+            self._meta[websocket] = {
+                "conn_id": conn_id,
+                "project_id": project_id,
+                "connected_at": datetime.now(timezone.utc).isoformat()
+            }
+        print(f"[REALTIME_BACKEND][{conn_id}] connection_open project_id={project_id}")
+        return conn_id
 
     async def disconnect(self, websocket: WebSocket) -> None:
         async with self._lock:
+            meta = self._meta.pop(websocket, None)
             self._connections.discard(websocket)
+        conn_id = meta.get("conn_id") if meta else "WS-UNKNOWN"
+        print(f"[REALTIME_BACKEND][{conn_id}] connection_close")
 
     async def broadcast(
         self,

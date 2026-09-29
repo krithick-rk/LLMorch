@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import api from '../api'
-import { useRealtimeEvents } from '../useRealtimeEvents'
+import { useRealtimeEvents, useRealtimeStatus } from '../useRealtimeEvents'
 import { StatusPill, Spinner, fmt, Mono } from './shared'
 
 export default function MasterSessionPage({ activeProject, onNavigate, refreshSignal }) {
@@ -83,9 +83,10 @@ export default function MasterSessionPage({ activeProject, onNavigate, refreshSi
     if (data.event_type.includes('TOOL') || data.event_type.includes('TASK') || data.event_type.includes('RUN') || data.event_type.includes('CLOSURE')) {
       loadData()
     }
-  }, [activeProject, loadData])
+  }, [activeProject?.project_id])
 
-  const isRealtimeConnected = useRealtimeEvents(handleRealtimeEvent)
+  useRealtimeEvents(handleRealtimeEvent)
+  const rtStatus = useRealtimeStatus()
 
   useEffect(() => {
     loadData()
@@ -109,15 +110,23 @@ export default function MasterSessionPage({ activeProject, onNavigate, refreshSi
             <span className="badge badge-active" style={{ fontSize: 11 }}>
               LIVE PROJECT SESSION
             </span>
-            {isRealtimeConnected ? (
-              <span className="badge badge-success" style={{ fontSize: 11, background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>
-                ● REALTIME CONNECTED
-              </span>
-            ) : (
-              <span className="badge badge-warning" style={{ fontSize: 11, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fca5a5' }}>
-                ○ REALTIME RECONNECTING
-              </span>
-            )}
+            <span
+              className={`badge ${rtStatus.isConnected ? 'badge-success' : (rtStatus.state === 'CONNECTING' || rtStatus.state === 'RECONNECTING' ? 'badge-warning' : 'badge-secondary')}`}
+              style={{
+                fontSize: 11,
+                fontFamily: 'var(--font-mono)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                background: rtStatus.isConnected ? '#ecfdf5' : (rtStatus.state === 'CONNECTING' || rtStatus.state === 'RECONNECTING' ? '#fffbeb' : '#f8fafc'),
+                color: rtStatus.isConnected ? '#047857' : (rtStatus.state === 'CONNECTING' || rtStatus.state === 'RECONNECTING' ? '#b45309' : '#64748b'),
+                border: `1px solid ${rtStatus.isConnected ? '#a7f3d0' : (rtStatus.state === 'CONNECTING' || rtStatus.state === 'RECONNECTING' ? '#fde68a' : '#cbd5e1')}`
+              }}
+              title={rtStatus.connectionId ? `Authoritative stream: ${rtStatus.connectionId}` : undefined}
+            >
+              <span>{rtStatus.isConnected ? '●' : (rtStatus.state === 'CONNECTING' || rtStatus.state === 'RECONNECTING' ? '◌' : '○')}</span>
+              REALTIME: {rtStatus.state}
+            </span>
             <span className="mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               Workspace: <strong>{activeProject?.name || 'Untitled Project'}</strong>
             </span>

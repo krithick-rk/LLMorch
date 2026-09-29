@@ -11,31 +11,49 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import api from '../../api'
 import { StatusPill, Spinner, fmt, Mono } from '../shared'
 
-const ALL_23_BUCKETS = [
-  { id: 'RESET_AND_CLOCK', name: 'Reset & Clock Domain Crossing', app: 'Applicable', obj: 12, ev: 8, state: 'Partial' },
-  { id: 'POWER_AND_ENERGY', name: 'Power & Energy Management', app: 'Applicable', obj: 6, ev: 6, state: 'Covered' },
-  { id: 'DEBUG_AND_TRACE', name: 'Debug & Trace Authorization', app: 'Applicable', obj: 8, ev: 2, state: 'Partial' },
-  { id: 'SIDE_CHANNEL_LEAKAGE', name: 'Side-Channel Leakage Immunity', app: 'Applicable', obj: 5, ev: 0, state: 'Blocked' },
-  { id: 'FAULT_INJECTION', name: 'Fault Injection Countermeasures', app: 'Applicable', obj: 7, ev: 3, state: 'Partial' },
-  { id: 'INTERCONNECT_AND_FABRIC', name: 'Interconnect & Bus Fabric Firewall', app: 'Applicable', obj: 14, ev: 11, state: 'Partial' },
-  { id: 'CRYPTO_ACCELERATOR', name: 'Cryptographic Engine Correctness', app: 'Applicable', obj: 9, ev: 9, state: 'Covered' },
-  { id: 'SECURE_BOOT_AND_LIFECYCLE', name: 'Secure Boot & Device Lifecycle', app: 'Applicable', obj: 11, ev: 11, state: 'Covered' },
-  { id: 'DMA_AND_BUS_MASTERING', name: 'DMA & Bus Mastering Security', app: 'Applicable', obj: 6, ev: 4, state: 'Partial' },
-  { id: 'TEST_AND_MANUFACTURING', name: 'Test & Manufacturing Security', app: 'Applicable', obj: 4, ev: 4, state: 'Covered' },
-  { id: 'ACCESS_CONTROL', name: 'Memory & Register Access Control', app: 'Applicable', obj: 15, ev: 13, state: 'Partial' },
-  { id: 'MEMORY_SUBSYSTEM', name: 'Memory Subsystem & Scrambling', app: 'Applicable', obj: 8, ev: 5, state: 'Partial' },
-  { id: 'INTERRUPT_HANDLING', name: 'Interrupt Handling & Prioritization', app: 'Applicable', obj: 6, ev: 6, state: 'Covered' },
-  { id: 'TAMPER_RESISTANCE', name: 'Physical & Environmental Tamper', app: 'Unknown', obj: 4, ev: 0, state: 'Blocked' },
-  { id: 'PERIPHERAL_INTERFACES', name: 'Peripheral Interfaces (SPI, I2C, UART)', app: 'Applicable', obj: 10, ev: 8, state: 'Partial' },
-  { id: 'FIRMWARE_HARDWARE_INTERFACE', name: 'Firmware-Hardware Interface Handshake', app: 'Applicable', obj: 7, ev: 5, state: 'Partial' },
-  { id: 'CLOCK_DOMAIN_CROSSING', name: 'Structural CDC / RDC Verification', app: 'Applicable', obj: 12, ev: 9, state: 'Partial' },
-  { id: 'REGISTER_ACCESS', name: 'Register Access Policies & Privileges', app: 'Applicable', obj: 16, ev: 16, state: 'Covered' },
-  { id: 'FORMAL_PROPERTY_VERIFICATION', name: 'Formal Security Invariant Checking', app: 'Applicable', obj: 8, ev: 4, state: 'Partial' },
-  { id: 'CODE_COVERAGE', name: 'RTL Line, Branch & Toggle Coverage', app: 'Applicable', obj: 10, ev: 7, state: 'Partial' },
-  { id: 'FUNCTIONAL_COVERAGE', name: 'Functional Coverage Model Closure', app: 'Applicable', obj: 12, ev: 8, state: 'Partial' },
-  { id: 'SECURITY_REGRESSION', name: 'Automated Security Regression Suite', app: 'Applicable', obj: 5, ev: 5, state: 'Covered' },
-  { id: 'ANALOG_MIXED_SIGNAL', name: 'Analog / Mixed-Signal Boundary Check', app: 'Not Applicable', obj: 0, ev: 0, state: 'Not Applicable' },
+const SOC_ONTOLOGY_BUCKETS = [
+  { id: 'ip_boundary', name: 'IP Boundary & Register Interface' },
+  { id: 'connectivity', name: 'Inter-Module Connectivity' },
+  { id: 'cross_ip_flows', name: 'Cross-IP Transaction Flows' },
+  { id: 'performance', name: 'Performance & Bandwidth' },
+  { id: 'blast_radius', name: 'Fault & Blast Radius Containment' },
+  { id: 'power_modes', name: 'Power Domains & Sleep Modes' },
+  { id: 'clocks', name: 'Clock Trees & PLL Distribution' },
+  { id: 'resets', name: 'Reset Controllers & Sequences' },
+  { id: 'cdc', name: 'Clock Domain Crossing (CDC)' },
+  { id: 'rdc', name: 'Reset Domain Crossing (RDC)' },
+  { id: 'x_init', name: 'X-Propagation & Initialization' },
+  { id: 'pin_muxing', name: 'Pin Multiplexing & Pad Control' },
+  { id: 'error_safety', name: 'Error Handling & Functional Safety' },
+  { id: 'security', name: 'Hardware Security & Access Control' },
+  { id: 'debug', name: 'Debug & JTAG Authorization' },
+  { id: 'boot', name: 'Secure Boot & ROM Execution' },
+  { id: 'memory_system', name: 'Memory Subsystem & Scrambling' },
+  { id: 'interconnect', name: 'Bus Fabric & Interconnect Firewall' },
+  { id: 'processor_integration', name: 'Processor Integration & Interrupts' },
+  { id: 'fuses_otp', name: 'OTP, eFuses & Lifecycle State' },
+  { id: 'product_variants', name: 'Product Variants & Configuration' },
+  { id: 'gate_static_signoff', name: 'Gate-Level Static Signoff' },
+  { id: 'closure', name: 'Verification Closure Tracking' },
 ]
+
+function fmtDuration(seconds) {
+  if (!seconds || seconds <= 0) return '—'
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`
+  const h = Math.floor(m / 60)
+  const remM = m % 60
+  return `${h}h ${remM}m`
+}
+
+function fmtK(num) {
+  if (!num) return '0'
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
+  if (num >= 1000) return (num / 1000).toFixed(0) + 'k'
+  return String(num)
+}
 
 export default function VerificationPlanPage({ planId, onNavigate, activeProject }) {
   const [plans, setPlans] = useState([])
@@ -141,8 +159,33 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
   }
 
   // Work package counts
-  const totalPackages = selectedPlan?.total_work_packages || workPackages.length || 23
+  const totalPackages = selectedPlan?.total_work_packages ?? workPackages.length
   const isLargeTask = totalPackages >= 10
+
+  const matrixItems = useMemo(() => {
+    const appMap = selectedPlan?.buckets_applicability || {}
+    const reasonMap = selectedPlan?.applicability_reasons || {}
+    return SOC_ONTOLOGY_BUCKETS.map((b) => {
+      const appState = appMap[b.id] || (selectedPlan ? 'NOT_APPLICABLE' : 'UNKNOWN')
+      const reason = reasonMap[b.id] || (appState === 'APPLICABLE' ? 'Evidence detected in repository sources.' : 'No architectural evidence detected in repository.')
+      const bucketObjs = objectives.filter(o => o.bucket === b.id)
+      const objCount = bucketObjs.length
+      const state = appState === 'APPLICABLE' ? (objCount > 0 ? 'Applicable' : 'Proposed') : (appState === 'NOT_APPLICABLE' ? 'Not Applicable' : 'Unknown')
+      return {
+        id: b.id,
+        name: b.name,
+        app: appState,
+        reason,
+        obj: objCount,
+        state
+      }
+    })
+  }, [selectedPlan, objectives])
+
+  const applicableCount = useMemo(() => {
+    if (!selectedPlan?.buckets_applicability) return 0
+    return Object.values(selectedPlan.buckets_applicability).filter(v => v === 'APPLICABLE').length
+  }, [selectedPlan])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -187,7 +230,7 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
               </div>
               <div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ESTIMATED TASKS</div>
-                <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{workPackages.length > 0 ? workPackages.length * 2 : 18} concrete tasks</div>
+                <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{selectedPlan?.total_work_packages || workPackages.length || 1} concrete tasks</div>
               </div>
               <div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ELIGIBLE AGENTS</div>
@@ -197,7 +240,9 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
               </div>
               <div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>TOKEN & TIME BOUNDS</div>
-                <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>~120k tokens · ~15-20 min</div>
+                <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>
+                  ~{fmtK(selectedPlan?.total_estimated_tokens || selectedPlan?.estimated_tokens || 10000)} tokens · ~{fmtDuration(selectedPlan?.total_estimated_duration_seconds || 60)}
+                </div>
               </div>
             </div>
 
@@ -345,32 +390,45 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
         </div>
       )}
 
-      {/* ── Summary & Metrics Bar ───────────────────────────────────────────── */}
+      {/* ── Summary & Metrics Bar (Section 15, 20, 21) ────────────────────── */}
       <div style={{
         padding: '8px 20px', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap', fontSize: 11
+        display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', fontSize: 11
       }}>
+        <div>
+          <span style={{ color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Complexity: </span>
+          <span className="badge badge-info" style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 10 }}>
+            {selectedPlan?.complexity_tier || 'MICRO'}
+          </span>
+        </div>
         <div>
           <span style={{ color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Work Packages: </span>
           <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{totalPackages}</span>
         </div>
         <div>
           <span style={{ color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Objectives: </span>
-          <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{objectives.length || 184}</span>
+          <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{objectives.length || selectedPlan?.total_objectives || 0}</span>
         </div>
         <div>
           <span style={{ color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Applicable Buckets: </span>
-          <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--blue)' }}>22 / 23</span>
+          <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--blue)' }}>{applicableCount} / 23</span>
         </div>
         <div>
           <span style={{ color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Estimated Budget: </span>
           <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
-            ~{selectedPlan?.estimated_tokens ? (selectedPlan.estimated_tokens / 1000).toFixed(0) : '480'}k tokens
+            ~{fmtK(selectedPlan?.total_estimated_tokens || selectedPlan?.estimated_tokens || 0)} tokens
           </span>
+          {selectedPlan?.repository_tokens != null && selectedPlan.repository_tokens > 0 && (
+            <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 4 }}>
+              (Repo: {fmtK(selectedPlan.repository_tokens)} | Plan: {fmtK(selectedPlan.planning_tokens)} | Exec: {fmtK(selectedPlan.execution_tokens)})
+            </span>
+          )}
         </div>
         <div>
           <span style={{ color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Estimated Time: </span>
-          <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>1.5 – 3.0 hours</span>
+          <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
+            {fmtDuration(selectedPlan?.total_estimated_duration_seconds || (totalPackages * 45))}
+          </span>
         </div>
       </div>
 
@@ -452,17 +510,16 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
               <thead>
                 <tr>
                   <th style={{ width: 40 }}>#</th>
-                  <th>Bucket Name</th>
+                  <th style={{ width: 220 }}>Bucket Name</th>
                   <th style={{ width: 130 }}>Applicability</th>
-                  <th style={{ width: 90 }}>Objectives</th>
-                  <th style={{ width: 90 }}>Evidence</th>
-                  <th style={{ width: 110 }}>Closure State</th>
+                  <th>Rationale / Evidence Reason</th>
+                  <th style={{ width: 80 }}>Objectives</th>
                   <th style={{ width: 100 }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {ALL_23_BUCKETS.map((b, idx) => (
-                  <tr key={b.id}>
+                {matrixItems.map((b, idx) => (
+                  <tr key={b.id} style={{ opacity: b.app === 'NOT_APPLICABLE' ? 0.65 : 1 }}>
                     <td className="mono" style={{ color: 'var(--text-muted)' }}>{idx + 1}</td>
                     <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                       {b.name}
@@ -471,18 +528,22 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
                       </span>
                     </td>
                     <td>
-                      <span style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 11,
-                        color: b.app === 'Applicable' ? 'var(--blue)' : 'var(--text-muted)',
-                        fontWeight: 500
-                      }}>
+                      <span
+                        className="mono"
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: b.app === 'APPLICABLE' ? 'var(--blue)' : (b.app === 'NOT_APPLICABLE' ? 'var(--text-muted)' : '#b45309')
+                        }}
+                      >
                         {b.app}
                       </span>
                     </td>
-                    <td className="mono">{b.obj}</td>
-                    <td className="mono">{b.ev}</td>
-                    <td>
-                      <StatusPill status={b.state} />
+                    <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                      {b.reason}
+                    </td>
+                    <td className="mono" style={{ fontWeight: b.obj > 0 ? 700 : 400 }}>
+                      {b.obj}
                     </td>
                     <td>
                       <button
@@ -491,6 +552,7 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
                         onClick={() => {
                           if (onNavigate) onNavigate('tasks')
                         }}
+                        disabled={b.obj === 0}
                       >
                         Inspect Tasks
                       </button>

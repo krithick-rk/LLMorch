@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import api from './api'
-import { useRealtimeEvents } from './useRealtimeEvents'
+import { useRealtimeEvents, useRealtimeStatus } from './useRealtimeEvents'
+import { realtimeClient } from './realtimeClient'
 import './index.css'
 import { AgentSwitchModal, ModelSwitchModal, RepoEstimateModal } from './components/Modals'
 import { TokenDashboard } from './components/TokenDashboard'
@@ -1686,9 +1687,12 @@ export default function App() {
   // Authoritative Active Security Timer:
   // Timer is 0 before START SECURITY ANALYSIS or during repository intake/waiting
   // Increments when run_state is RUNNING
-  // Freezes on PAUSED / STOPPED / COMPLETED
+  // Freezes on PAUSED / STOPPED / COMPLETED / SUCCEEDED / FAILED
   useEffect(() => {
-    if (elapsedRef.current) clearInterval(elapsedRef.current)
+    if (elapsedRef.current) {
+      clearInterval(elapsedRef.current)
+      elapsedRef.current = null
+    }
     const stage = currentRun?.stage || 'REPOSITORY_ANALYSIS'
     const state = currentRun?.run_state || currentRun?.status || 'PREPARING'
 
@@ -1697,28 +1701,61 @@ export default function App() {
       return
     }
 
-    if (['PAUSED', 'STOPPED', 'COMPLETED', 'FAILED', 'EMERGENCY_STOPPED'].includes(state)) {
-      setElapsed(currentRun?.active_duration_seconds ?? currentRun?.elapsed_seconds ?? 0)
+    if (['PAUSED', 'STOPPED', 'COMPLETED', 'SUCCEEDED', 'FAILED', 'EMERGENCY_STOPPED', 'COMPLETED_WITH_FAILURES'].includes(state)) {
+      if (currentRun?.completed_at && (currentRun?.start_time || currentRun?.analysis_started_at)) {
+        const start = currentRun.start_time || currentRun.analysis_started_at
+        const dur = (new Date(currentRun.completed_at).getTime() - new Date(start).getTime()) / 1000
+        setElapsed(Math.max(0, dur))
+      } else if (currentRun?.end_time && (currentRun?.start_time || currentRun?.analysis_started_at)) {
+        const start = currentRun.start_time || currentRun.analysis_started_at
+        const dur = (new Date(currentRun.end_time).getTime() - new Date(start).getTime()) / 1000
+        setElapsed(Math.max(0, dur))
+      } else {
+        setElapsed(currentRun?.active_duration_seconds ?? currentRun?.elapsed_seconds ?? 0)
+      }
       return
     }
 
-    if (!currentRun?.analysis_started_at) {
+    const startIso = currentRun?.analysis_started_at || currentRun?.start_time
+    if (!startIso) {
       setElapsed(currentRun?.active_duration_seconds || 0)
       return
     }
 
-    const startMs = new Date(currentRun.analysis_started_at).getTime()
+    const startMs = new Date(startIso).getTime()
     const tick = () => {
       const sec = Math.max(0, (Date.now() - startMs) / 1000)
       setElapsed(sec)
     }
     tick()
     elapsedRef.current = setInterval(tick, 1000)
-    return () => clearInterval(elapsedRef.current)
-  }, [currentRun?.run_id, currentRun?.stage, currentRun?.run_state, currentRun?.analysis_started_at, currentRun?.active_duration_seconds, currentRun?.paused_at])
+    return () => {
+      if (elapsedRef.current) clearInterval(elapsedRef.current)
+    }
+  }, [
+    currentRun?.run_id, currentRun?.stage, currentRun?.run_state, currentRun?.status,
+    currentRun?.analysis_started_at, currentRun?.start_time, currentRun?.completed_at,
+    currentRun?.end_time, currentRun?.active_duration_seconds, currentRun?.paused_at
+  ])
 
-  const isConnected = useRealtimeEvents(handleEvent)
-  useEffect(() => { setWsConnected(isConnected) }, [isConnected])
+  // Sync active project with centralized realtimeClient singleton
+  useEffect(() => {
+    realtimeClient.setProject(activeProject?.project_id, currentRun?.run_id)
+  }, [activeProject?.project_id, currentRun?.run_id])
+
+  useRealtimeEvents(handleEvent)
+  const rtStatus = useRealtimeStatus()
+  useEffect(() => { setWsConnected(rtStatus.isConnected) }, [rtStatus.isConnected])
+
+  // Reconcile on reconnect
+  const prevConnectedRef = useRef(false)
+  useEffect(() => {
+    if (rtStatus.isConnected && !prevConnectedRef.current) {
+      fetchCurrentRun()
+      setRefreshSignal(s => s + 1)
+    }
+    prevConnectedRef.current = rtStatus.isConnected
+  }, [rtStatus.isConnected, fetchCurrentRun])
 
   const runState = currentRun?.run_state || currentRun?.status || null
   const stateClass = (runState || 'unknown').toLowerCase().replace(/_/g, '_')
@@ -2168,7 +2205,7 @@ export default function App() {
         <div className="bsb-item">
           <span style={{ color: 'var(--text-muted)' }}>TARGET:</span>
           <span className="mono" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
-            {currentRun?.repository_name || 'OpenTitan'}
+            {currentRun?.repository_name || activeProject?.name || 'No Target'}
           </span>
         </div>
         <div className="bsb-item">
@@ -2178,13 +2215,20 @@ export default function App() {
         <div className="bsb-item">
           <span style={{ color: 'var(--text-muted)' }}>EXECUTOR:</span>
           <span className="mono" style={{ color: 'var(--blue)', fontWeight: 600 }}>
-            AGY [PID 18294]
+            {currentRun?.agent_id ? `${currentRun.agent_id}${currentRun.process_id ? ` [PID ${currentRun.process_id}]` : ''}` : 'STANDBY'}
           </span>
         </div>
         <div className="bsb-item">
           <span style={{ color: 'var(--text-muted)' }}>REALTIME:</span>
-          <span className="mono" style={{ color: wsConnected ? 'var(--green)' : 'var(--red)' }}>
-            {wsConnected ? 'CONNECTED' : 'DISCONNECTED'}
+          <span
+            className="mono"
+            style={{
+              color: rtStatus.isConnected ? 'var(--green)' : (rtStatus.state === 'CONNECTING' || rtStatus.state === 'RECONNECTING' ? '#b45309' : 'var(--text-muted)'),
+              fontWeight: 600
+            }}
+            title={rtStatus.connectionId ? `Stream ID: ${rtStatus.connectionId}` : undefined}
+          >
+            {rtStatus.isConnected ? '● CONNECTED' : (rtStatus.state === 'CONNECTING' || rtStatus.state === 'RECONNECTING' ? `◌ ${rtStatus.state}` : `○ ${rtStatus.state}`)}
           </span>
         </div>
         <div className="bsb-item" style={{ marginLeft: 'auto' }}>

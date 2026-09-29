@@ -150,19 +150,20 @@ export function TaskDetailPage({ taskId, isAttempt, onNavigate }) {
 
   const isFailed = ['FAILED', 'ERROR', 'STOPPED', 'CANCELLED'].includes((task.status || '').toUpperCase())
   const inp = typeof task.inputs === 'object' && task.inputs !== null ? task.inputs : {}
-  const bucket = inp.bucket || inp.ontology_bucket || task.bucket || 'CLOCK_DOMAIN_CROSSING'
-  const method = inp.method || task.method || 'structural'
-  const toolName = activeAttempt?.tool_name || (toolExecutions[0]?.tool_name) || inp.tool || inp.tool_name || 'Yosys'
-  const agentId = activeAttempt?.agent_id || task.assigned_agent_id || 'AGY'
-  const role = task.role || 'CDC / Clock / Reset Analysis'
-  const workspacePath = inp.workspace || `/workspace/runs/${task.workflow_id || 'current'}/${task.task_id}`
+  const bucket = inp.bucket || inp.ontology_bucket || task.bucket || 'HARDWARE_VERIFICATION'
+  const method = inp.method || task.method || 'deterministic'
 
   // Extract raw tool stdout / stderr from executions or attempt
   const latestExec = toolExecutions[0] || null
-  const commandLine = latestExec?.command || (toolName === 'Yosys' ? `yosys -p "read_verilog -sv rtl/*.sv; synth -top soc_top"` : `${toolName.toLowerCase()} --lint-only -Wall rtl/*.sv`)
-  const exitCode = latestExec?.exit_code != null ? latestExec.exit_code : (isFailed ? 1 : 0)
-  const rawStdout = latestExec?.stdout_artifact || latestExec?.execution_result || activeAttempt?.stdout || `[INFO] Initialized tool environment: ${toolName}\n[INFO] Loading RTL source tree from ${workspacePath}\n[INFO] AST elaboration started...\n[INFO] Analysis complete. 0 critical domain boundary violations.`
-  const rawStderr = latestExec?.stderr_artifact || activeAttempt?.stderr || (isFailed ? `%Error: Cannot elaborate module 'spi_host' due to unresolved clock signal 'clk_spi_i'\n%Error: Exiting with code 1` : '')
+  const toolName = latestExec?.tool_name || activeAttempt?.tool_name || inp.tool || inp.tool_name || (task.status === 'RUNNING' ? 'Running' : '—')
+  const agentId = latestExec?.agent_id || activeAttempt?.agent_id || task.assigned_agent_id || 'orchestrator'
+  const role = task.role || 'Hardware Verification Specialist'
+  const workspacePath = inp.workspace || inp.repository_path || `/workspace/runs/${task.workflow_id || 'current'}/${task.task_id}`
+
+  const commandLine = latestExec?.command || (inp.command ? String(inp.command) : '—')
+  const exitCode = latestExec?.exit_code != null ? latestExec.exit_code : (activeAttempt?.exit_code != null ? activeAttempt.exit_code : null)
+  const rawStdout = latestExec?.stdout_artifact || latestExec?.execution_result || activeAttempt?.stdout || (task.status === 'RUNNING' ? '[INFO] Task is running. Awaiting tool execution output...' : '[INFO] No execution output recorded.')
+  const rawStderr = latestExec?.stderr_artifact || activeAttempt?.stderr || ''
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -256,15 +257,15 @@ export function TaskDetailPage({ taskId, isAttempt, onNavigate }) {
           <span style={{ color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Exit Code:</span>
           <span style={{
             fontFamily: 'var(--font-mono)', fontWeight: 700,
-            color: exitCode === 0 ? 'var(--green)' : 'var(--red)'
+            color: exitCode != null ? (exitCode === 0 ? 'var(--green)' : 'var(--red)') : 'var(--text-muted)'
           }}>
-            {exitCode}
+            {exitCode != null ? exitCode : '—'}
           </span>
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
           <span style={{ color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Duration:</span>
           <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
-            {task.elapsed_seconds != null ? fmtElapsed(task.elapsed_seconds) : '0:34'}
+            {task.elapsed_seconds != null ? fmtElapsed(task.elapsed_seconds) : (task.completed_at && task.started_at ? fmtElapsed((new Date(task.completed_at).getTime() - new Date(task.started_at).getTime()) / 1000) : '—')}
           </span>
         </div>
         <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
@@ -280,7 +281,7 @@ export function TaskDetailPage({ taskId, isAttempt, onNavigate }) {
         <div className="execution-chain">
           <div className="chain-node">
             <span className="chain-label">1. Objective</span>
-            <span className="chain-value truncate" style={{ maxWidth: 100 }} title={task.objective}>{task.objective?.slice(0, 14) || 'Verify CDC'}…</span>
+            <span className="chain-value truncate" style={{ maxWidth: 100 }} title={task.objective}>{task.objective?.slice(0, 16) || task.task_id}…</span>
           </div>
           <span className="chain-arrow">→</span>
           <div className="chain-node">
@@ -295,30 +296,30 @@ export function TaskDetailPage({ taskId, isAttempt, onNavigate }) {
           <span className="chain-arrow">→</span>
           <div className="chain-node" style={{ border: '1px solid #cbd5e1', background: '#f8fafc' }}>
             <span className="chain-label">4. Tool</span>
-            <span className="chain-value">{toolName}</span>
+            <span className="chain-value">{latestExec ? `${latestExec.tool_name} (exit ${exitCode})` : (task.status === 'RUNNING' ? 'RUNNING' : toolName)}</span>
           </div>
           <span className="chain-arrow">→</span>
           <div className="chain-node">
             <span className="chain-label">5. Artifact</span>
-            <span className="chain-value">{isFailed ? 'none' : 'hierarchy.json'}</span>
+            <span className="chain-value">{task.artifacts?.length ? `${task.artifacts.length} items` : (latestExec?.stdout_artifact ? 'log' : (isFailed ? 'none' : '—'))}</span>
           </div>
           <span className="chain-arrow">→</span>
           <div className="chain-node">
             <span className="chain-label">6. Evidence</span>
-            <span className="chain-value">{task.evidence?.length ? `${task.evidence.length} items` : (isFailed ? '0 items' : '1 item')}</span>
+            <span className="chain-value">{task.evidence?.length ? `${task.evidence.length} items` : (latestExec ? '1 item' : '0 items')}</span>
           </div>
           <span className="chain-arrow">→</span>
           <div className="chain-node">
             <span className="chain-label">7. Validator</span>
-            <span className="chain-value">{isFailed ? 'FAILED' : 'PASS'}</span>
+            <span className="chain-value">{latestExec ? (exitCode === 0 ? 'PASS' : 'FAILED') : (task.status === 'RUNNING' ? 'IN_PROGRESS' : 'PENDING')}</span>
           </div>
           <span className="chain-arrow">→</span>
           <div className="chain-node" style={{
-            background: isFailed ? 'var(--red-bg)' : 'var(--green-bg)',
-            borderColor: isFailed ? 'var(--red-border)' : 'var(--green-border)'
+            background: isFailed ? 'var(--red-bg)' : (task.status === 'SUCCEEDED' || task.status === 'COMPLETED' ? 'var(--green-bg)' : 'var(--bg-subtle)'),
+            borderColor: isFailed ? 'var(--red-border)' : (task.status === 'SUCCEEDED' || task.status === 'COMPLETED' ? 'var(--green-border)' : 'var(--border)')
           }}>
-            <span className="chain-label" style={{ color: isFailed ? 'var(--red)' : 'var(--green)' }}>8. Result</span>
-            <span className="chain-value" style={{ color: isFailed ? 'var(--red)' : 'var(--green)' }}>{task.status}</span>
+            <span className="chain-label" style={{ color: isFailed ? 'var(--red)' : (task.status === 'SUCCEEDED' || task.status === 'COMPLETED' ? 'var(--green)' : 'var(--text-secondary)') }}>8. Result</span>
+            <span className="chain-value" style={{ color: isFailed ? 'var(--red)' : (task.status === 'SUCCEEDED' || task.status === 'COMPLETED' ? 'var(--green)' : 'var(--text-primary)') }}>{task.status || 'PENDING'}</span>
           </div>
         </div>
       </div>

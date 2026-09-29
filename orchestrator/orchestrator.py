@@ -709,7 +709,7 @@ class CentralOrchestrator:
                 payload={"plan_id": plan_id, "coverage_pct": snap.objective_coverage_pct, "covered_objectives": snap.covered_objectives}
             )
 
-            # 9. Complete Task
+            # 9. Complete Task via Deterministic Finalization
             if exit_code == 0:
                 with self.db.get_connection() as conn:
                     conn.execute("UPDATE tasks SET status = ?, completed_at = ?, watchdog_status = 'NORMAL' WHERE task_id = ?",
@@ -720,6 +720,8 @@ class CentralOrchestrator:
                         conn.execute("UPDATE work_packages SET status = ? WHERE package_id = ?",
                                      (WorkPackageStatus.COMPLETED.value, t["work_package_id"]))
                     conn.commit()
+
+                self.finalize_task(tid, run_id=run_id, project_id=project_id)
 
                 await self._emit_event(
                     event_type="TASK_RESULT",
@@ -749,6 +751,8 @@ class CentralOrchestrator:
                                      (WorkPackageStatus.FAILED.value, t["work_package_id"]))
                     conn.commit()
 
+                self.finalize_task(tid, run_id=run_id, project_id=project_id)
+
                 await self._emit_event(
                     event_type="TASK_FAILED",
                     actor="orchestrator",
@@ -758,28 +762,20 @@ class CentralOrchestrator:
                     payload={"task_id": tid, "status": "FAILED", "reason": fail_msg}
                 )
 
+            # Check if all child tasks have concluded
+            with self.db.get_connection() as conn:
+                pending_count = conn.execute("""
+                    SELECT COUNT(*) FROM tasks
+                    WHERE plan_id = ? AND task_id != ? AND status IN ('QUEUED', 'RUNNING', 'BLOCKED')
+                """, (plan_id, f"task-root-{run_id}")).fetchone()[0]
+            if pending_count == 0:
+                break
+
             await asyncio.sleep(0.3)
 
-        # 10. Run Completion (Section 22)
-        end_time = datetime.now(timezone.utc).isoformat()
-        with self.db.get_connection() as conn:
-            all_tasks = conn.execute("SELECT status FROM tasks WHERE plan_id = ? AND task_id != ?",
-                                     (plan_id, f"task-root-{run_id}")).fetchall()
-            any_failed = any(t_row["status"] == ExplicitTaskState.FAILED.value for t_row in all_tasks)
-            final_status = "COMPLETED_WITH_FAILURES" if any_failed else "COMPLETED"
-
-            conn.execute("""
-                UPDATE runs
-                SET status = ?, run_state = 'COMPLETED', end_time = ?, completed_at = ?,
-                    active_duration_seconds = MAX(1, CAST((julianday(?) - julianday(start_time)) * 86400 AS INTEGER))
-                WHERE run_id = ?
-            """, (final_status, end_time, end_time, end_time, run_id))
-
-            conn.execute("UPDATE tasks SET status = 'COMPLETED', completed_at = ? WHERE task_id = ?",
-                         (end_time, f"task-root-{run_id}"))
-            conn.execute("UPDATE verification_plans SET status = ? WHERE plan_id = ?",
-                         (PlanStatus.COMPLETED.value, plan_id))
-            conn.commit()
+        # 10. Run & Root Task Completion (Section 9, 10, 22)
+        run_res = self.finalize_run(run_id, plan_id=plan_id, project_id=project_id)
+        final_status = run_res["status"]
 
         await self._emit_event(
             event_type="RUN_COMPLETED",
@@ -788,6 +784,166 @@ class CentralOrchestrator:
             project_id=project_id,
             payload={"run_id": run_id, "status": final_status, "plan_id": plan_id}
         )
+
+    def finalize_task(self, task_id: str, run_id: Optional[str] = None, project_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Deterministic Task Finalization (Section 7, 8, 9).
+        Transitions task to terminal state verifying process, tool execution, attempts, and evidence.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.get_connection() as conn:
+            task_row = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+            if not task_row:
+                return {"status": "NOT_FOUND", "task_id": task_id}
+
+            task = dict(task_row)
+            p_id = project_id or task.get("project_id")
+
+            # Check if root task: aggregate child task states
+            if task_id.startswith("task-root-"):
+                child_rows = conn.execute(
+                    "SELECT status FROM tasks WHERE (parent_task_id = ? OR (plan_id = ? AND task_id != ?))",
+                    (task_id, task.get("plan_id"), task_id)
+                ).fetchall()
+                if not child_rows:
+                    target_status = ExplicitTaskState.SUCCEEDED.value
+                else:
+                    child_statuses = [c["status"] for c in child_rows]
+                    terminal_set = {"SUCCEEDED", "COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"}
+                    if not all(s in terminal_set for s in child_statuses):
+                        # Still running children
+                        return {"status": task["status"], "task_id": task_id, "children_active": True}
+                    any_failed = any(s in ("FAILED", "TIMED_OUT", "CANCELLED") for s in child_statuses)
+                    target_status = ExplicitTaskState.FAILED.value if any_failed else ExplicitTaskState.SUCCEEDED.value
+
+                conn.execute(
+                    "UPDATE tasks SET status = ?, completed_at = COALESCE(completed_at, ?) WHERE task_id = ?",
+                    (target_status, now, task_id)
+                )
+                conn.commit()
+                return {"status": target_status, "task_id": task_id, "is_root": True}
+
+            # Leaf task: check tool execution and attempts
+            tool_exec = conn.execute(
+                "SELECT * FROM tool_executions WHERE task_id = ? ORDER BY started_at DESC LIMIT 1",
+                (task_id,)
+            ).fetchone()
+
+            attempts = conn.execute(
+                "SELECT * FROM task_attempts WHERE task_id = ? ORDER BY attempt_number DESC",
+                (task_id,)
+            ).fetchall()
+
+            evidence_count = conn.execute(
+                "SELECT COUNT(*) FROM evidence WHERE task_id = ?",
+                (task_id,)
+            ).fetchone()[0]
+
+            if tool_exec:
+                t_dict = dict(tool_exec)
+                if t_dict.get("exit_code") == 0:
+                    target_status = ExplicitTaskState.SUCCEEDED.value
+                    fail_reason = None
+                else:
+                    target_status = ExplicitTaskState.FAILED.value
+                    fail_reason = t_dict.get("execution_result") or f"Tool exited with code {t_dict.get('exit_code', 1)}"
+            elif attempts:
+                att = dict(attempts[0])
+                if att.get("status") in ("SUCCEEDED", "COMPLETED"):
+                    target_status = ExplicitTaskState.SUCCEEDED.value
+                    fail_reason = None
+                elif att.get("status") in ("FAILED", "TIMED_OUT", "CANCELLED"):
+                    target_status = att.get("status")
+                    fail_reason = att.get("failure_reason") or "Attempt failed"
+                else:
+                    return {"status": task["status"], "task_id": task_id}
+            else:
+                target_status = ExplicitTaskState.SUCCEEDED.value if task.get("status") in ("SUCCEEDED", "COMPLETED") else ExplicitTaskState.FAILED.value
+                fail_reason = "No tool execution recorded"
+
+            conn.execute("""
+                UPDATE tasks
+                SET status = ?, failure_reason = ?, completed_at = COALESCE(completed_at, ?), watchdog_status = 'NORMAL'
+                WHERE task_id = ?
+            """, (target_status, fail_reason, now, task_id))
+
+            conn.execute("""
+                UPDATE task_attempts
+                SET status = ?, failure_reason = ?, end_time = COALESCE(end_time, ?)
+                WHERE task_id = ? AND status = 'RUNNING'
+            """, (target_status, fail_reason, now, task_id))
+
+            if task.get("work_package_id"):
+                wp_status = WorkPackageStatus.COMPLETED.value if target_status == ExplicitTaskState.SUCCEEDED.value else WorkPackageStatus.FAILED.value
+                conn.execute("UPDATE work_packages SET status = ? WHERE package_id = ?", (wp_status, task["work_package_id"]))
+
+            conn.commit()
+
+        return {
+            "status": target_status,
+            "task_id": task_id,
+            "failure_reason": fail_reason,
+            "evidence_count": evidence_count,
+            "completed_at": now
+        }
+
+    def finalize_run(self, run_id: str, plan_id: Optional[str] = None, project_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Authoritative Run Finalization (Section 9, 10, 11).
+        Aggregates child task states, finalizes root task, freezes active duration timer,
+        and transitions run to COMPLETED or COMPLETED_WITH_FAILURES.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.get_connection() as conn:
+            run_row = conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+            if not run_row:
+                return {"status": "NOT_FOUND", "run_id": run_id}
+
+            r = dict(run_row)
+            p_id = plan_id or r.get("plan_id")
+            proj_id = project_id or r.get("project_id")
+            root_task_id = f"task-root-{run_id}"
+
+            # 1. Finalize root task
+            self.finalize_task(root_task_id, run_id=run_id, project_id=proj_id)
+
+            # 2. Check all non-root tasks
+            all_tasks = conn.execute(
+                "SELECT status FROM tasks WHERE (plan_id = ? OR workflow_id = ?) AND task_id != ?",
+                (p_id, f"wf-{p_id}", root_task_id)
+            ).fetchall()
+
+            if all_tasks:
+                any_failed = any(t["status"] in ("FAILED", "TIMED_OUT", "CANCELLED") for t in all_tasks)
+                final_status = "COMPLETED_WITH_FAILURES" if any_failed else "COMPLETED"
+            else:
+                final_status = "COMPLETED"
+
+            start_t = r.get("start_time") or r.get("created_at") or now
+            conn.execute("""
+                UPDATE runs
+                SET status = ?, run_state = 'COMPLETED', end_time = ?, completed_at = ?,
+                    active_duration_seconds = MAX(1, CAST((julianday(?) - julianday(?)) * 86400 AS INTEGER))
+                WHERE run_id = ?
+            """, (final_status, now, now, now, start_t, run_id))
+
+            conn.execute(
+                "UPDATE tasks SET status = 'COMPLETED', completed_at = COALESCE(completed_at, ?) WHERE task_id = ?",
+                (now, root_task_id)
+            )
+
+            if p_id:
+                conn.execute("UPDATE verification_plans SET status = ? WHERE plan_id = ?",
+                             (PlanStatus.COMPLETED.value, p_id))
+
+            conn.commit()
+
+        return {
+            "status": final_status,
+            "run_id": run_id,
+            "plan_id": p_id,
+            "completed_at": now
+        }
 
     def activate_verification_plan(
         self,

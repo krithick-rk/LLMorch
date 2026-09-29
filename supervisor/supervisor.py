@@ -26,6 +26,10 @@ from schemas.soc_verification import (
     Specification,
 )
 from repository_intelligence.preflight import PreflightReport, RepositoryClassification
+from repository_intelligence.complexity import (
+    ComplexityTier, IntentDepth, classify_complexity,
+    parse_intent_depth, evaluate_bucket_evidence, get_task_limit_for_tier
+)
 
 
 class Supervisor:
@@ -66,6 +70,9 @@ class Supervisor:
                 scope_description=f"Preflight audit completed: {preflight.summary_text}",
                 status=PlanStatus.COMPLETED,
                 buckets_applicability={b.value: BucketApplicability.NOT_APPLICABLE.value for b in SoCBucket},
+                applicability_reasons={b.value: "Preflight audit completed with terminal status" for b in SoCBucket},
+                complexity_tier=ComplexityTier.MICRO.value,
+                intent_depth=IntentDepth.QUICK.value,
                 total_requirements=0,
                 total_objectives=0,
                 total_work_packages=0,
@@ -77,24 +84,53 @@ class Supervisor:
             )
             return plan, [], [], []
 
-        # 2. Determine 23-Bucket Applicability
-        bucket_applicability: Dict[str, str] = {}
-        for bucket in SoCBucket:
-            applicability = self._determine_bucket_applicability(bucket, preflight, analysis_units)
-            bucket_applicability[bucket.value] = applicability.value
+        # 2. Deterministic Complexity Tier & Domain Evidence (Section 15, 16, 17)
+        tier, evidence = classify_complexity(
+            repo_path=repository_path,
+            analyzable_files_count=preflight.analyzable_files_count if preflight else 2,
+            total_bytes=preflight.total_bytes if preflight else 5000,
+            rtl_detected=preflight.rtl_detected if preflight else True,
+            software_detected=preflight.software_detected if preflight else False,
+            build_system_detected=preflight.build_system_detected if preflight else False
+        )
+        depth = parse_intent_depth(intent_objective, tier)
 
-        # 3. Formulate Verification Objectives from applicable buckets and requirements
+        # 3. Determine Evidence-Driven 23-Bucket Applicability (Section 18 & 26)
+        bucket_applicability: Dict[str, str] = {}
+        applicability_reasons: Dict[str, str] = {}
+        for bucket in SoCBucket:
+            app, reason = evaluate_bucket_evidence(
+                bucket=bucket,
+                tier=tier,
+                intent=depth,
+                evidence=evidence,
+                rtl_detected=preflight.rtl_detected if preflight else True,
+                software_detected=preflight.software_detected if preflight else False
+            )
+            bucket_applicability[bucket.value] = app.value
+            applicability_reasons[bucket.value] = reason
+
+        # 4. Formulate Verification Objectives from applicable buckets and requirements
         objectives: List[VerificationObjective] = []
         req_list = requirements or []
 
-        for bucket_key, status in bucket_applicability.items():
-            if status != BucketApplicability.APPLICABLE.value:
-                continue
+        # Sort applicable buckets by architectural relevance
+        applicable_buckets = [b for b in SoCBucket if bucket_applicability.get(b.value) == BucketApplicability.APPLICABLE.value]
+        max_tasks = get_task_limit_for_tier(tier, depth)
 
-            soc_b = SoCBucket(bucket_key)
+        # Bound applicable buckets to max_tasks for small repositories (Section 19)
+        if len(applicable_buckets) > max_tasks:
+            priority_order = [
+                SoCBucket.RESETS, SoCBucket.CLOCKS, SoCBucket.IP_BOUNDARY,
+                SoCBucket.SECURITY, SoCBucket.CONNECTIVITY, SoCBucket.CDC,
+                SoCBucket.CLOSURE
+            ]
+            prioritized = [b for b in priority_order if b in applicable_buckets]
+            other_b = [b for b in applicable_buckets if b not in prioritized]
+            applicable_buckets = (prioritized + other_b)[:max_tasks]
+
+        for soc_b in applicable_buckets:
             b_def = SOC_BUCKET_DEFINITIONS[soc_b]
-
-            # Link with matched requirements if available
             matched_reqs = [r for r in req_list if r.primary_bucket == soc_b]
             if matched_reqs:
                 for r in matched_reqs:
@@ -108,21 +144,19 @@ class Supervisor:
                     )
                     objectives.append(obj)
             else:
-                # Default objective for applicable bucket
                 obj = VerificationObjective(
                     bucket=soc_b,
-                    title=f"{b_def.name} Baseline Verification",
+                    title=f"{b_def.name} Verification",
                     statement=f"Verify structural and functional {b_def.name} integrity ({b_def.scope_description})",
                     target_components=[repository_name],
-                    verification_method="STATIC_LINT" if soc_b in (SoCBucket.IP_BOUNDARY, SoCBucket.CLOCKS) else "SIMULATION"
+                    verification_method="STATIC_LINT" if soc_b in (SoCBucket.IP_BOUNDARY, SoCBucket.CLOCKS, SoCBucket.RESETS) else "SIMULATION"
                 )
                 objectives.append(obj)
 
-        # 4. Decompose Objectives into Bounded Work Packages
+        # 5. Decompose Objectives into Bounded Work Packages
         work_packages: List[WorkPackage] = []
         proposed_questions: List[Dict[str, Any]] = []
 
-        # Group objectives by bucket
         objs_by_bucket: Dict[SoCBucket, List[VerificationObjective]] = {}
         for obj in objectives:
             objs_by_bucket.setdefault(obj.bucket, []).append(obj)
@@ -131,9 +165,17 @@ class Supervisor:
             b_def = SOC_BUCKET_DEFINITIONS[bucket]
             wp_id = f"wp-{uuid.uuid4().hex[:8]}"
 
-            # Determine cost tier and token budget
-            est_tokens = len(b_objs) * 15000 + 10000
-            est_seconds = len(b_objs) * 60 + 60
+            # Scaled token and duration estimation (Section 20 & 21)
+            if tier == ComplexityTier.MICRO:
+                est_tokens = len(b_objs) * 4000 + 2000
+                est_seconds = len(b_objs) * 30 + 15
+            elif tier == ComplexityTier.SMALL:
+                est_tokens = len(b_objs) * 6000 + 4000
+                est_seconds = len(b_objs) * 45 + 30
+            else:
+                est_tokens = len(b_objs) * 12000 + 8000
+                est_seconds = len(b_objs) * 60 + 60
+
             cost_tier = CostTier.LIGHTWEIGHT if est_tokens < 30000 else (CostTier.MODERATE if est_tokens < 100000 else CostTier.EXPENSIVE)
 
             wp = WorkPackage(
@@ -147,13 +189,13 @@ class Supervisor:
                 estimated_tokens=est_tokens,
                 estimated_duration_seconds=est_seconds,
                 cost_tier=cost_tier,
-                recommendation_mode=ExecutionRecommendationMode.RECOMMEND_EXECUTION if cost_tier != CostTier.LIGHTWEIGHT else ExecutionRecommendationMode.AUTO_EXECUTE,
+                recommendation_mode=ExecutionRecommendationMode.AUTO_EXECUTE if cost_tier == CostTier.LIGHTWEIGHT else ExecutionRecommendationMode.RECOMMEND_EXECUTION,
                 status=WorkPackageStatus.PROPOSED
             )
             work_packages.append(wp)
 
-        # 5. Check for Missing Context or Ambiguities requiring Analyst Decision
-        if preflight and not preflight.build_system_detected and preflight.rtl_detected:
+        # Check for Missing Context or Ambiguities requiring Analyst Decision
+        if preflight and not preflight.build_system_detected and preflight.rtl_detected and tier not in (ComplexityTier.MICRO, ComplexityTier.SMALL):
             proposed_questions.append({
                 "question_id": f"q-build-{uuid.uuid4().hex[:6]}",
                 "reason": "Missing build/compilation metadata for RTL simulation",
@@ -167,20 +209,14 @@ class Supervisor:
                 "default_option": "Auto-generate Verilator lint and compilation script"
             })
 
-        # Check for UNKNOWN security buckets
-        for b_name, status in bucket_applicability.items():
-            if status == BucketApplicability.UNKNOWN.value and b_name in ("debug", "fuses_otp", "power_modes"):
-                proposed_questions.append({
-                    "question_id": f"q-{b_name}-{uuid.uuid4().hex[:6]}",
-                    "reason": f"Ambiguous applicability for {b_name} domain",
-                    "question": f"Is {b_name} feature verification applicable to this repository target?",
-                    "options": ["Applicable", "Not Applicable", "Skip until specifications provided"],
-                    "default_option": "Skip until specifications provided"
-                })
-
-        # 6. Calculate Plan Aggregates
-        total_tokens = sum(wp.estimated_tokens for wp in work_packages)
+        # Separate token breakdown (Section 20)
+        repo_bytes = preflight.total_bytes if preflight else 4000
+        repo_tokens = max(500, repo_bytes // 4)
+        plan_tokens = 3000 if tier == ComplexityTier.MICRO else (6000 if tier == ComplexityTier.SMALL else 15000)
+        exec_tokens = sum(wp.estimated_tokens for wp in work_packages)
+        total_tokens = repo_tokens + plan_tokens + exec_tokens
         total_duration = sum(wp.estimated_duration_seconds for wp in work_packages)
+
         total_cost_tier = CostTier.LIGHTWEIGHT if total_tokens < 50000 else (
             CostTier.MODERATE if total_tokens < 200000 else CostTier.EXPENSIVE
         )
@@ -193,9 +229,15 @@ class Supervisor:
             version=version,
             repository_path=repository_path,
             repository_name=repository_name,
-            scope_description=intent_objective or f"23-Bucket SoC Verification Plan for {repository_name}",
+            scope_description=intent_objective or f"Adaptive {tier.value} Verification Plan for {repository_name}",
             status=PlanStatus.DRAFT,
             buckets_applicability=bucket_applicability,
+            applicability_reasons=applicability_reasons,
+            complexity_tier=tier.value,
+            intent_depth=depth.value,
+            repository_tokens=repo_tokens,
+            planning_tokens=plan_tokens,
+            execution_tokens=exec_tokens,
             total_requirements=len(req_list),
             total_objectives=len(objectives),
             total_work_packages=len(work_packages),
@@ -324,7 +366,7 @@ class Supervisor:
         self,
         bucket: SoCBucket,
         preflight: Optional[PreflightReport],
-        analysis_units: Optional[List[Any]]
+        analysis_units: Optional[List[Any]] = None
     ) -> BucketApplicability:
         """
         Deterministically evaluates whether a bucket is APPLICABLE, NOT_APPLICABLE, or UNKNOWN.
@@ -335,27 +377,23 @@ class Supervisor:
         if preflight.is_terminal:
             return BucketApplicability.NOT_APPLICABLE
 
-        # If pure software without RTL
-        if preflight.software_detected and not preflight.rtl_detected:
-            if bucket in (SoCBucket.SECURITY, SoCBucket.MEMORY_SYSTEM, SoCBucket.ERROR_SAFETY):
-                return BucketApplicability.APPLICABLE
-            elif bucket in (SoCBucket.CLOCKS, SoCBucket.RESETS, SoCBucket.CDC, SoCBucket.RDC, SoCBucket.GATE_STATIC_SIGNOFF):
-                return BucketApplicability.NOT_APPLICABLE
-            else:
-                return BucketApplicability.UNKNOWN
-
-        # If RTL is present
-        if preflight.rtl_detected:
-            if bucket in (SoCBucket.IP_BOUNDARY, SoCBucket.CONNECTIVITY, SoCBucket.CLOCKS, SoCBucket.RESETS, SoCBucket.SECURITY, SoCBucket.GATE_STATIC_SIGNOFF, SoCBucket.CLOSURE):
-                return BucketApplicability.APPLICABLE
-            elif bucket in (SoCBucket.CDC, SoCBucket.RDC, SoCBucket.X_INIT, SoCBucket.PIN_MUXING, SoCBucket.CROSS_IP_FLOWS):
-                return BucketApplicability.APPLICABLE
-            elif bucket in (SoCBucket.BOOT, SoCBucket.DEBUG, SoCBucket.FUSES_OTP, SoCBucket.POWER_MODES, SoCBucket.PERFORMANCE):
-                return BucketApplicability.UNKNOWN
-            else:
-                return BucketApplicability.APPLICABLE
-
-        return BucketApplicability.UNKNOWN
+        tier, evidence = classify_complexity(
+            repo_path=preflight.repository_path,
+            analyzable_files_count=preflight.analyzable_files_count,
+            total_bytes=preflight.total_bytes,
+            rtl_detected=preflight.rtl_detected,
+            software_detected=preflight.software_detected,
+            build_system_detected=preflight.build_system_detected
+        )
+        app, _ = evaluate_bucket_evidence(
+            bucket=bucket,
+            tier=tier,
+            intent=IntentDepth.STANDARD,
+            evidence=evidence,
+            rtl_detected=preflight.rtl_detected,
+            software_detected=preflight.software_detected
+        )
+        return app
 
 
 # Module-level alias

@@ -49,6 +49,7 @@ from api.routers import (
     policies,
     context_fabric,
     projects,
+    debug,
 )
 
 # ─── App ──────────────────────────────────────────────────────────────────────
@@ -108,6 +109,7 @@ app.include_router(closure.router)
 app.include_router(policies.router)
 app.include_router(context_fabric.router)
 app.include_router(projects.router)
+app.include_router(debug.router)
 
 
 
@@ -155,14 +157,15 @@ async def websocket_events(websocket: WebSocket):
     On disconnect: connection is cleaned up automatically.
     Event format: RealtimeEvent JSON with monotonic sequence numbers.
     """
-    await event_manager.connect(websocket)
+    project_id = websocket.query_params.get("project_id")
+    await event_manager.connect(websocket, project_id=project_id)
     await event_manager.send_sync_message(websocket)
     try:
         while True:
             # Keep connection alive; client may send pings
             data = await websocket.receive_text()
             # Clients can send {"type":"ping"} to check liveness
-            if data.strip() == '{"type":"ping"}':
+            if "ping" in data:
                 await websocket.send_text('{"type":"pong"}')
     except WebSocketDisconnect:
         await event_manager.disconnect(websocket)
