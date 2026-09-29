@@ -835,8 +835,8 @@ class ToolExecutionRepository:
                 INSERT OR REPLACE INTO tool_executions (
                     execution_id, tool_name, category, agent_id, task_id, run_id,
                     command, args, working_dir, status, exit_code, stdout_artifact,
-                    stderr_artifact, execution_result, evidence_ids, started_at, completed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    stderr_artifact, execution_result, evidence_ids, started_at, completed_at, project_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 exec_id,
                 data["tool_name"],
@@ -855,6 +855,7 @@ class ToolExecutionRepository:
                 ev_json,
                 data.get("started_at") or now,
                 data.get("completed_at") or now,
+                data.get("project_id"),
             ))
             conn.commit()
 
@@ -868,6 +869,7 @@ class ToolExecutionRepository:
         tool_name: Optional[str] = None,
         task_id: Optional[str] = None,
         agent_id: Optional[str] = None,
+        project_id: Optional[str] = None,
         limit: int = 50
     ) -> List[Dict[str, Any]]:
         with self.db.get_connection() as conn:
@@ -882,6 +884,9 @@ class ToolExecutionRepository:
             if agent_id:
                 filters.append("agent_id = ?")
                 params.append(agent_id)
+            if project_id:
+                filters.append("project_id = ?")
+                params.append(project_id)
             where = ("WHERE " + " AND ".join(filters)) if filters else ""
             rows = conn.execute(
                 f"SELECT * FROM tool_executions {where} ORDER BY started_at DESC LIMIT ?",

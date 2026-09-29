@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import api from '../api'
+import { useRealtimeEvents } from '../useRealtimeEvents'
 import { StatusPill, Spinner, fmt, Mono } from './shared'
 
 export default function MasterSessionPage({ activeProject, onNavigate, refreshSignal }) {
@@ -32,136 +33,59 @@ export default function MasterSessionPage({ activeProject, onNavigate, refreshSi
 
   const loadData = useCallback(async () => {
     try {
-      const [tList, tools, runs] = await Promise.all([
-        api.tasks({ limit: 50 }).catch(() => ({ items: [] })),
-        api.toolExecutions({ limit: 50 }).catch(() => ({ items: [] })),
-        api.runs({ limit: 5 }).catch(() => ({ items: [] })),
+      setLoading(true)
+      const projParam = activeProject?.project_id ? { project_id: activeProject.project_id } : {}
+      const [tList, tools, runs, tl] = await Promise.all([
+        api.tasks({ ...projParam, limit: 100 }).catch(() => ({ items: [] })),
+        api.toolExecutions({ ...projParam, limit: 100 }).catch(() => []),
+        api.runs({ ...projParam, limit: 10 }).catch(() => ({ items: [] })),
+        api.timeline({ ...projParam, limit: 200 }).catch(() => []),
       ])
       setTasks(tList.items || [])
-      setToolExecutions(tools.items || [
-        {
-          execution_id: 'texec-701',
-          tool_name: 'Verilator',
-          version: 'v5.020',
-          requester: 'agent-agy-01',
-          method: 'LINT_ONLY',
-          command: 'verilator --lint-only -Wall rtl/debug/debug_auth.sv',
-          arguments: ['--lint-only', '-Wall', 'rtl/debug/debug_auth.sv'],
-          working_dir: '/home/hackdac/Desktop/intern/LLMorch',
-          start_time: new Date(Date.now() - 120000).toISOString(),
-          end_time: new Date(Date.now() - 117000).toISOString(),
-          duration_sec: 3.12,
-          exit_code: 0,
-          stdout: '%Info: Lint checking module debug_auth...\n%Info: 0 syntax errors detected.\n%Info: JTAG TAP clock domain crossing validated against standard cell library.\n',
-          stderr: '',
-          artifacts: ['debug_auth.lint.log']
-        },
-        {
-          execution_id: 'texec-702',
-          tool_name: 'Boolector',
-          version: 'v3.2.2',
-          requester: 'agent-agy-01',
-          method: 'SMT_FORMAL_PROVE',
-          command: 'boolector --smt2 benchmarks/debug_unlock_inv.smt2',
-          arguments: ['--smt2', 'benchmarks/debug_unlock_inv.smt2'],
-          working_dir: '/home/hackdac/Desktop/intern/LLMorch',
-          start_time: new Date(Date.now() - 60000).toISOString(),
-          end_time: new Date(Date.now() - 55000).toISOString(),
-          duration_sec: 5.48,
-          exit_code: 0,
-          stdout: 'sat\n(model\n  (define-fun auth_unlocked () Bool false)\n  (define-fun prod_fuse_blown () Bool true)\n)\n;; INVARIANT VERIFIED: Debug cannot unlock while prod_fuse_blown is TRUE.\n',
-          stderr: '',
-          artifacts: ['debug_unlock_inv.proof.smt2']
-        }
-      ])
 
-      // Seed real observable protocol events
-      setEvents([
-        {
-          id: 'ev-01',
-          timestamp: new Date(Date.now() - 150000).toISOString(),
-          source: 'ORCHESTRATOR',
-          target: 'AGY',
-          event_type: 'TASK_ASSIGNMENT',
-          payload: { task_id: 'task-sec-01', objective: 'Verify debug authentication TAP boundary locks' }
-        },
-        {
-          id: 'ev-02',
-          timestamp: new Date(Date.now() - 145000).toISOString(),
-          source: 'AGY',
-          target: 'ORCHESTRATOR',
-          event_type: 'TASK_ACK',
-          payload: { task_id: 'task-sec-01', status: 'ACCEPTED', budget_locked: 60000 }
-        },
-        {
-          id: 'ev-03',
-          timestamp: new Date(Date.now() - 120000).toISOString(),
-          source: 'AGY',
-          target: 'TOOL_PLANE',
-          event_type: 'TOOL_REQUEST',
-          payload: { tool: 'Verilator', command: 'verilator --lint-only rtl/debug/debug_auth.sv' }
-        },
-        {
-          id: 'ev-04',
-          timestamp: new Date(Date.now() - 117000).toISOString(),
-          source: 'TOOL_PLANE',
-          target: 'AGY',
-          event_type: 'TOOL_RESULT',
-          payload: { tool: 'Verilator', exit_code: 0, stdout_lines: 4 }
-        },
-        {
-          id: 'ev-05',
-          timestamp: new Date(Date.now() - 80000).toISOString(),
-          source: 'AGY',
-          target: 'ORCHESTRATOR',
-          event_type: 'SCOPED_CONTEXT_HANDOFF',
-          payload: { target_agent: 'Codex', reason: 'Generate SMT-LIB2 invariant proof harness' }
-        },
-        {
-          id: 'ev-06',
-          timestamp: new Date(Date.now() - 75000).toISOString(),
-          source: 'ORCHESTRATOR',
-          target: 'CODEX',
-          event_type: 'TASK_ASSIGNMENT',
-          payload: { task_id: 'task-sec-01-smt', parent_task_id: 'task-sec-01' }
-        },
-        {
-          id: 'ev-07',
-          timestamp: new Date(Date.now() - 60000).toISOString(),
-          source: 'CODEX',
-          target: 'TOOL_PLANE',
-          event_type: 'TOOL_REQUEST',
-          payload: { tool: 'Boolector', command: 'boolector --smt2 benchmarks/debug_unlock_inv.smt2' }
-        },
-        {
-          id: 'ev-08',
-          timestamp: new Date(Date.now() - 55000).toISOString(),
-          source: 'TOOL_PLANE',
-          target: 'CODEX',
-          event_type: 'TOOL_RESULT',
-          payload: { tool: 'Boolector', exit_code: 0, invariant_status: 'VERIFIED' }
-        },
-        {
-          id: 'ev-09',
-          timestamp: new Date(Date.now() - 30000).toISOString(),
-          source: 'VALIDATOR',
-          target: 'ORCHESTRATOR',
-          event_type: 'VALIDATION_RESULT',
-          payload: { verdict: 'PASSED', confidence: 0.98, evidence_id: 'evi-proof-01' }
-        },
-        {
-          id: 'ev-10',
-          timestamp: new Date(Date.now() - 10000).toISOString(),
-          source: 'CLOSURE',
-          target: 'ALL',
-          event_type: 'COVERAGE_UPDATE',
-          payload: { bucket: 'DEBUG_AND_TRACE', coverage_delta: '+12.5%', current_bucket_pct: '87.5%' }
-        }
-      ])
+      const realTools = Array.isArray(tools) ? tools : (tools?.items || [])
+      setToolExecutions(realTools)
+      if (realTools.length > 0) {
+        setSelectedToolExec(prev => prev ? (realTools.find(t => t.execution_id === prev.execution_id) || realTools[0]) : realTools[0])
+      }
+
+      const realTimeline = Array.isArray(tl) ? tl : (tl?.events || tl?.items || [])
+      const mappedEvents = realTimeline.map(ev => ({
+        id: ev.event_id || ev.id || `ev-${Math.random()}`,
+        timestamp: ev.timestamp || new Date().toISOString(),
+        source: ev.source || 'ORCHESTRATOR',
+        target: ev.target || 'AGENT',
+        event_type: ev.event_type || 'INFO',
+        payload: ev.payload || ev.details || {}
+      }))
+      setEvents(mappedEvents)
     } catch (err) {
-      console.error(err)
+      console.error('Failed to load MasterSession data:', err)
+    } finally {
+      setLoading(false)
     }
-  }, [])
+  }, [activeProject])
+
+  const handleRealtimeEvent = useCallback((data) => {
+    if (!data || !data.event_type) return
+    if (activeProject?.project_id && data.project_id && data.project_id !== activeProject.project_id) {
+      return
+    }
+    const incoming = {
+      id: data.event_id || data.id || `ev-${Date.now()}-${Math.random()}`,
+      timestamp: data.timestamp || new Date().toISOString(),
+      source: data.source || 'ORCHESTRATOR',
+      target: data.target || 'AGENT',
+      event_type: data.event_type,
+      payload: data.payload || data.details || {}
+    }
+    setEvents(prev => [...prev, incoming])
+    if (data.event_type.includes('TOOL') || data.event_type.includes('TASK') || data.event_type.includes('RUN') || data.event_type.includes('CLOSURE')) {
+      loadData()
+    }
+  }, [activeProject, loadData])
+
+  const isRealtimeConnected = useRealtimeEvents(handleRealtimeEvent)
 
   useEffect(() => {
     loadData()
@@ -185,6 +109,15 @@ export default function MasterSessionPage({ activeProject, onNavigate, refreshSi
             <span className="badge badge-active" style={{ fontSize: 11 }}>
               LIVE PROJECT SESSION
             </span>
+            {isRealtimeConnected ? (
+              <span className="badge badge-success" style={{ fontSize: 11, background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>
+                ● REALTIME CONNECTED
+              </span>
+            ) : (
+              <span className="badge badge-warning" style={{ fontSize: 11, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fca5a5' }}>
+                ○ REALTIME RECONNECTING
+              </span>
+            )}
             <span className="mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               Workspace: <strong>{activeProject?.name || 'Untitled Project'}</strong>
             </span>
@@ -287,56 +220,67 @@ export default function MasterSessionPage({ activeProject, onNavigate, refreshSi
               </div>
 
               <div style={{ maxHeight: 520, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {events.map(ev => {
-                  const isTool = ev.event_type.includes('TOOL')
-                  const isHandoff = ev.event_type.includes('HANDOFF')
-                  return (
-                    <div
-                      key={ev.id}
-                      style={{
-                        padding: '10px 14px',
-                        border: '1px solid var(--border)',
-                        borderRadius: 3,
-                        background: isTool ? '#f8fafc' : (isHandoff ? 'var(--blue-bg)' : '#ffffff'),
-                        borderLeft: isTool ? '3px solid var(--amber)' : (isHandoff ? '3px solid var(--blue)' : '3px solid var(--green)')
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span
-                            onClick={() => { setSelectedAgent(ev.source === 'TOOL_PLANE' ? 'agent-agy-01' : ev.source); setShowAgentDrawer(true) }}
-                            className="mono"
-                            style={{ fontWeight: 700, fontSize: 12, color: 'var(--blue)', cursor: 'pointer' }}
-                            title="Click to inspect Agent Workspace"
-                          >
-                            {ev.source}
-                          </span>
-                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>→</span>
-                          <span
-                            onClick={() => { setSelectedAgent(ev.target === 'TOOL_PLANE' ? 'agent-agy-01' : ev.target); setShowAgentDrawer(true) }}
-                            className="mono"
-                            style={{ fontWeight: 700, fontSize: 12, color: 'var(--text-primary)', cursor: 'pointer' }}
-                            title="Click to inspect Agent Workspace"
-                          >
-                            {ev.target}
+                {events.length === 0 ? (
+                  <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, background: 'var(--bg-subtle)', borderRadius: 4 }}>
+                    <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
+                      No Protocol Events Recorded Yet
+                    </div>
+                    <div>
+                      Navigate to <strong>Verification Plan</strong> and click <strong>✓ Approve Plan</strong> to dispatch tasks to the Orchestrator.
+                    </div>
+                  </div>
+                ) : (
+                  events.map(ev => {
+                    const isTool = ev.event_type.includes('TOOL')
+                    const isHandoff = ev.event_type.includes('HANDOFF')
+                    return (
+                      <div
+                        key={ev.id}
+                        style={{
+                          padding: '10px 14px',
+                          border: '1px solid var(--border)',
+                          borderRadius: 3,
+                          background: isTool ? '#f8fafc' : (isHandoff ? 'var(--blue-bg)' : '#ffffff'),
+                          borderLeft: isTool ? '3px solid var(--amber)' : (isHandoff ? '3px solid var(--blue)' : '3px solid var(--green)')
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span
+                              onClick={() => { setSelectedAgent(ev.source === 'TOOL_PLANE' ? 'agent-agy-01' : ev.source); setShowAgentDrawer(true) }}
+                              className="mono"
+                              style={{ fontWeight: 700, fontSize: 12, color: 'var(--blue)', cursor: 'pointer' }}
+                              title="Click to inspect Agent Workspace"
+                            >
+                              {ev.source}
+                            </span>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>→</span>
+                            <span
+                              onClick={() => { setSelectedAgent(ev.target === 'TOOL_PLANE' ? 'agent-agy-01' : ev.target); setShowAgentDrawer(true) }}
+                              className="mono"
+                              style={{ fontWeight: 700, fontSize: 12, color: 'var(--text-primary)', cursor: 'pointer' }}
+                              title="Click to inspect Agent Workspace"
+                            >
+                              {ev.target}
+                            </span>
+                          </div>
+                          <span className="mono" style={{ fontSize: 11, fontWeight: 600, color: isTool ? 'var(--amber)' : (isHandoff ? 'var(--blue)' : 'var(--green)') }}>
+                            {ev.event_type}
                           </span>
                         </div>
-                        <span className="mono" style={{ fontSize: 11, fontWeight: 600, color: isTool ? 'var(--amber)' : (isHandoff ? 'var(--blue)' : 'var(--green)') }}>
-                          {ev.event_type}
-                        </span>
-                      </div>
 
-                      <div className="mono" style={{ fontSize: 12, color: 'var(--text-primary)', background: 'var(--bg-elevated)', padding: '6px 10px', borderRadius: 2 }}>
-                        {JSON.stringify(ev.payload)}
-                      </div>
+                        <div className="mono" style={{ fontSize: 12, color: 'var(--text-primary)', background: 'var(--bg-elevated)', padding: '6px 10px', borderRadius: 2 }}>
+                          {JSON.stringify(ev.payload)}
+                        </div>
 
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                        <span>ID: {ev.id}</span>
-                        <span>{fmt(ev.timestamp)}</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                          <span>ID: {ev.id}</span>
+                          <span>{fmt(ev.timestamp)}</span>
+                        </div>
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })
+                )}
               </div>
             </div>
 
@@ -345,39 +289,45 @@ export default function MasterSessionPage({ activeProject, onNavigate, refreshSi
               {/* Tool Execution List */}
               <div className="panel" style={{ boxShadow: 'var(--shadow-sm)' }}>
                 <div className="panel-header" style={{ padding: '10px 16px' }}>
-                  <span className="panel-title" style={{ fontSize: 13 }}>Deterministic Tool Executions</span>
+                  <span className="panel-title" style={{ fontSize: 13 }}>Deterministic Tool Executions ({toolExecutions.length})</span>
                 </div>
                 <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {toolExecutions.map(tool => (
-                    <div
-                      key={tool.execution_id}
-                      onClick={() => setSelectedToolExec(tool)}
-                      style={{
-                        padding: '10px 12px',
-                        border: '1px solid var(--border)',
-                        borderRadius: 3,
-                        cursor: 'pointer',
-                        background: selectedToolExec?.execution_id === tool.execution_id ? 'var(--blue-bg)' : '#ffffff',
-                        borderLeft: selectedToolExec?.execution_id === tool.execution_id ? '3px solid var(--blue)' : '3px solid transparent'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-bright)' }}>
-                          {tool.tool_name} <span className="mono text-muted" style={{ fontSize: 11 }}>({tool.version})</span>
-                        </span>
-                        <span className="badge badge-completed" style={{ fontSize: 10 }}>
-                          EXIT: {tool.exit_code}
-                        </span>
-                      </div>
-                      <div className="mono text-muted truncate" style={{ fontSize: 11, marginTop: 2 }}>
-                        {tool.command}
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginTop: 4 }}>
-                        <span>Duration: {tool.duration_sec}s</span>
-                        <span>Requester: {tool.requester}</span>
-                      </div>
+                  {toolExecutions.length === 0 ? (
+                    <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12, background: 'var(--bg-subtle)', borderRadius: 3 }}>
+                      No deterministic tools executed yet for this project.
                     </div>
-                  ))}
+                  ) : (
+                    toolExecutions.map(tool => (
+                      <div
+                        key={tool.execution_id}
+                        onClick={() => setSelectedToolExec(tool)}
+                        style={{
+                          padding: '10px 12px',
+                          border: '1px solid var(--border)',
+                          borderRadius: 3,
+                          cursor: 'pointer',
+                          background: selectedToolExec?.execution_id === tool.execution_id ? 'var(--blue-bg)' : '#ffffff',
+                          borderLeft: selectedToolExec?.execution_id === tool.execution_id ? '3px solid var(--blue)' : '3px solid transparent'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-bright)' }}>
+                            {tool.tool_name} <span className="mono text-muted" style={{ fontSize: 11 }}>({tool.version})</span>
+                          </span>
+                          <span className="badge badge-completed" style={{ fontSize: 10 }}>
+                            EXIT: {tool.exit_code}
+                          </span>
+                        </div>
+                        <div className="mono text-muted truncate" style={{ fontSize: 11, marginTop: 2 }}>
+                          {tool.command}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginTop: 4 }}>
+                          <span>Duration: {tool.duration_sec}s</span>
+                          <span>Requester: {tool.requester}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
 

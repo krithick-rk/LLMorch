@@ -56,18 +56,27 @@ def generate_verification_plan(
 ):
     """Supervisor synthesizes a draft VerificationPlan with 23-bucket mapping and work packages."""
     db = _get_db()
+    from history.project_repository import ProjectRepository
+    proj_repo = ProjectRepository(db)
+    active_project_id = proj_repo.get_active_project_id()
+    active_proj = proj_repo.get_project(active_project_id) if active_project_id else None
+
     repo_path = req.repository_path
     repo_name = "Target Repository"
     intent = req.intent or req.intent_objective
 
     if not repo_path:
-        target_repo = TargetRepositoryRepository(db)
-        cur = target_repo.get_current()
-        if cur:
-            repo_path = cur["repository_path"]
-            repo_name = cur["repository_name"]
+        if active_proj and active_proj.get("target_directory") and active_proj["target_directory"] != "/dev/null":
+            repo_path = active_proj["target_directory"]
+            repo_name = active_proj.get("name", "Target Repository")
         else:
-            raise HTTPException(status_code=400, detail="No repository specified or currently selected")
+            target_repo = TargetRepositoryRepository(db)
+            cur = target_repo.get_current()
+            if cur:
+                repo_path = cur["repository_path"]
+                repo_name = cur["repository_name"]
+            else:
+                raise HTTPException(status_code=400, detail="No repository specified or currently selected")
 
     p = Path(repo_path).resolve()
     if not p.exists() or not p.is_dir():
@@ -89,6 +98,10 @@ def generate_verification_plan(
         requirements=all_reqs
     )
 
+    plan.project_id = active_project_id
+    for wp in work_packages:
+        wp.project_id = active_project_id
+
     # Persist draft plan and proposed work packages
     plan_repo = VerificationPlanRepository(db)
     wp_repo = WorkPackageRepository(db)
@@ -102,11 +115,12 @@ def generate_verification_plan(
             conn.execute("""
                 INSERT OR REPLACE INTO verification_objectives (
                     objective_id, requirement_id, bucket, title, statement,
-                    target_components, verification_method, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    target_components, verification_method, status, created_at, plan_id, project_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 obj.objective_id, obj.requirement_id, obj.bucket.value, obj.title, obj.statement,
-                json.dumps(obj.target_components), obj.verification_method, obj.status, obj.created_at
+                json.dumps(obj.target_components), obj.verification_method, obj.status, obj.created_at,
+                plan.plan_id, active_project_id
             ))
         conn.commit()
 
@@ -161,28 +175,38 @@ def get_verification_plan(
     }
 
 
+class PlanApproveRequest(BaseModel):
+    wave: Optional[str] = "FULL"
+    execution_mode: Optional[str] = "STANDARD"
+
+
 @router.post("/plan/{plan_id}/approve")
-def approve_verification_plan(
+async def approve_verification_plan(
     plan_id: str,
+    req: Optional[PlanApproveRequest] = None,
     session: SessionInfo = Depends(require_session)
 ):
-    """Analyst approves draft plan, triggering the Orchestrator to activate tasks."""
+    """Analyst approves draft plan, triggering the Orchestrator to activate and execute tasks."""
     db = _get_db()
     plan_repo = VerificationPlanRepository(db)
     plan = plan_repo.get(plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail=f"Plan '{plan_id}' not found")
 
-    plan_repo.update_status(plan_id, PlanStatus.APPROVED, approved_by="analyst")
-    orch = CentralOrchestrator(db)
-    created_tasks = orch.activate_verification_plan(plan_id)
+    from history.project_repository import ProjectRepository
+    proj_repo = ProjectRepository(db)
+    active_project_id = proj_repo.get_active_project_id()
+    project_id = plan.project_id or active_project_id
 
-    return {
-        "status": "PLAN_APPROVED_AND_ACTIVATED",
-        "plan_id": plan_id,
-        "activated_tasks": created_tasks,
-        "message": f"VerificationPlan '{plan_id}' approved. Orchestrator spawned {len(created_tasks)} tasks."
-    }
+    wave = req.wave if req and req.wave else "FULL"
+
+    orch = CentralOrchestrator(db)
+    res = await orch.approve_and_execute_plan(
+        plan_id=plan_id,
+        project_id=project_id,
+        wave=wave
+    )
+    return res
 
 
 @router.post("/plan/{plan_id}/reject")

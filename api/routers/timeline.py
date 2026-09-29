@@ -88,6 +88,7 @@ def _row_to_entry(r: dict) -> TimelineEntry:
 def get_timeline(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    project_id: Optional[str] = Query(None),
     run_id: Optional[str] = Query(None),
     task_id: Optional[str] = Query(None),
     agent_id: Optional[str] = Query(None),
@@ -99,6 +100,9 @@ def get_timeline(
     with db.get_connection() as conn:
         filters = []
         params: list = []
+        if project_id:
+            filters.append("project_id = ?")
+            params.append(project_id)
         if run_id:
             filters.append("run_id = ?")
             params.append(run_id)

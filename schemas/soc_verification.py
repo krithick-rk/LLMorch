@@ -45,6 +45,7 @@ class WorkPackageStatus(str, Enum):
     PROPOSED = "PROPOSED"
     APPROVED = "APPROVED"
     QUEUED = "QUEUED"
+    BLOCKED = "BLOCKED"
     RUNNING = "RUNNING"
     PAUSED = "PAUSED"
     WAITING_FOR_HUMAN = "WAITING_FOR_HUMAN"
@@ -210,6 +211,7 @@ class ToolPlan(BaseModel):
 
 
 class WorkPackage(BaseModel):
+    project_id: Optional[str] = None
     package_id: str = Field(default_factory=lambda: f"wp-{uuid.uuid4().hex[:8]}")
     plan_id: str
     name: str

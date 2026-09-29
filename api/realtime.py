@@ -76,6 +76,26 @@ class ConnectionManager:
             for ws in dead:
                 self._connections.discard(ws)
 
+        # Persist event to database
+        try:
+            from history.database import get_db_path, DatabaseService
+            db = DatabaseService(get_db_path())
+            actor = (payload.get("actor") or payload.get("agent_id") or "orchestrator") if payload else "orchestrator"
+            tool = (payload.get("tool") or payload.get("tool_name")) if payload else None
+            now_iso = event.timestamp.isoformat()
+            with db.get_connection() as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO events (
+                        event_id, run_id, timestamp, event_type, actor, tool, payload, schema_version, project_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    event.event_id, r_id, now_iso, event_type, actor, tool,
+                    json.dumps(payload or {}), "1.0", p_id
+                ))
+                conn.commit()
+        except Exception:
+            pass
+
         return event
 
     def connection_count(self) -> int:

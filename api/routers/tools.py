@@ -237,11 +237,12 @@ def list_all_executions(
     task_id: Optional[str] = Query(None),
     agent_id: Optional[str] = Query(None),
     tool_name: Optional[str] = Query(None),
+    project_id: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     session: SessionInfo = Depends(require_session),
 ):
     """
-    Returns tool execution records, optionally filtered by task_id, agent_id, or tool_name.
+    Returns tool execution records, optionally filtered by task_id, agent_id, tool_name, or project_id.
     Used by the Agent Workroom tool feed and workflow pages.
     """
     db = _get_db()
@@ -249,12 +250,10 @@ def list_all_executions(
     rows = exec_repo.list_executions(
         tool_name=tool_name,
         task_id=task_id,
+        agent_id=agent_id,
+        project_id=project_id,
         limit=limit,
     )
-
-    # Apply agent_id filter (not in ToolExecutionRepository interface yet)
-    if agent_id:
-        rows = [r for r in rows if r.get("agent_id") == agent_id]
 
     records = []
     for r in rows:

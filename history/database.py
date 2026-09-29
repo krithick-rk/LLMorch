@@ -1456,7 +1456,7 @@ class DatabaseService:
             _project_scoped_tables = [
                 "tasks", "runs", "questions", "analyst_questions", "analyst_instructions",
                 "task_attempts", "findings", "evidence", "artifacts", "events",
-                "verification_plans", "work_packages", "closure_snapshots", "coverage_items",
+                "verification_plans", "work_packages", "verification_objectives", "closure_snapshots", "coverage_items",
                 "gaps", "tool_executions", "agent_role_assignments", "chat_messages",
                 "run_control_events", "repository_snapshots", "analysis_units",
                 "specifications", "requirements", "policy_candidates", "target_repositories",
@@ -1467,6 +1467,10 @@ class DatabaseService:
                     cursor.execute(f"ALTER TABLE {tbl} ADD COLUMN project_id TEXT")
                 except Exception:
                     pass
+            try:
+                cursor.execute("ALTER TABLE verification_objectives ADD COLUMN plan_id TEXT")
+            except Exception:
+                pass
 
             # Ensure Legacy/Unassigned Archive project exists
             try:

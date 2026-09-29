@@ -140,13 +140,13 @@ class WorkPackageRepository:
                 INSERT OR REPLACE INTO work_packages (
                     package_id, plan_id, name, description, bucket, role, objective_ids,
                     target_files, dependencies, estimated_tokens, estimated_duration_seconds,
-                    cost_tier, recommendation_mode, status, assigned_agent_id, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    cost_tier, recommendation_mode, status, assigned_agent_id, created_at, project_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 wp.package_id, wp.plan_id, wp.name, wp.description, wp.bucket.value, wp.role,
                 json.dumps(wp.objective_ids), json.dumps(wp.target_files), json.dumps(wp.dependencies),
                 wp.estimated_tokens, wp.estimated_duration_seconds, wp.cost_tier.value,
-                wp.recommendation_mode.value, wp.status.value, wp.assigned_agent_id, wp.created_at
+                wp.recommendation_mode.value, wp.status.value, wp.assigned_agent_id, wp.created_at, wp.project_id
             ))
             conn.commit()
 
@@ -170,6 +170,7 @@ class WorkPackageRepository:
     def _row_to_wp(self, row) -> WorkPackage:
         d = dict(row)
         return WorkPackage(
+            project_id=d.get("project_id"),
             package_id=d["package_id"],
             plan_id=d["plan_id"],
             name=d["name"],

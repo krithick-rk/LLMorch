@@ -106,15 +106,37 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
     }
   }
 
-  const handleApprovePlan = async () => {
+  const [showPreflight, setShowPreflight] = useState(false)
+  const [approvingState, setApprovingState] = useState('IDLE') // 'IDLE' | 'STARTING' | 'RUNNING' | 'ERROR'
+  const [activeRunId, setActiveRunId] = useState(null)
+  const [approvalError, setApprovalError] = useState(null)
+
+  const handleApprovePlan = async (wave = 'FULL') => {
     if (!selectedPlan) return
     try {
-      setActionMsg('Approving plan and activating work package tasks...')
-      const res = await api.approveVerificationPlan(selectedPlan.plan_id)
-      setActionMsg(`Plan approved! ${res.activated_tasks?.length || 0} tasks dispatched to queue.`)
+      setApprovingState('STARTING')
+      setApprovalError(null)
+      setActionMsg(`Approving plan ${selectedPlan.plan_id} and dispatching ${wave} wave to Orchestrator...`)
+      const res = await api.approveVerificationPlan(selectedPlan.plan_id, {
+        wave: wave,
+        execution_mode: 'PARALLEL'
+      })
+      
+      const runId = res.run?.run_id || res.run_id
+      setActiveRunId(runId)
+      setApprovingState('RUNNING')
+      setShowPreflight(false)
+      setActionMsg(`✓ Plan approved! Run ${runId || ''} created & executing with ${res.activated_tasks?.length || 0} active tasks.`)
       await loadPlanDetail(selectedPlan.plan_id)
     } catch (err) {
-      setActionMsg(`Error: ${err.message}`)
+      setApprovingState('ERROR')
+      setApprovalError({
+        stage: 'Orchestrator WorkPackage & Run Creation',
+        message: err.message,
+        project: activeProject?.name || activeProject?.project_id || 'Active Project',
+        plan: selectedPlan.plan_id
+      })
+      setActionMsg(`PLAN EXECUTION FAILED: ${err.message}`)
     }
   }
 
@@ -124,6 +146,108 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      {/* ── Preflight Approval Modal (Section 18 & 19) ────────────────────── */}
+      {showPreflight && selectedPlan && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.6)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <div style={{
+            background: 'var(--bg-base)', border: '1px solid var(--border-focus)',
+            borderRadius: 6, width: 560, maxWidth: '90vw', padding: 24,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column', gap: 16
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-bright)' }}>
+                Plan Approval & Execution Preflight
+              </span>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowPreflight(false)}>✕</button>
+            </div>
+
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Verify plan bounds and execution configuration before activating the Central Orchestrator:
+            </div>
+
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10,
+              background: 'var(--bg-subtle)', padding: 14, borderRadius: 4, border: '1px solid var(--border)'
+            }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>PLAN ID / VERSION</div>
+                <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{selectedPlan.plan_id} (v{selectedPlan.version || 1})</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ACTIVE PROJECT</div>
+                <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{activeProject?.name || activeProject?.project_id || 'Active Project'}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>WORK PACKAGES</div>
+                <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{totalPackages} WorkPackages</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ESTIMATED TASKS</div>
+                <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{workPackages.length > 0 ? workPackages.length * 2 : 18} concrete tasks</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ELIGIBLE AGENTS</div>
+                <div className="mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--blue)' }}>
+                  AGY / Codex <span style={{ fontSize: 10, color: 'var(--red)', display: 'block' }}>(Claude: DISABLED BY POLICY)</span>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>TOKEN & TIME BOUNDS</div>
+                <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>~120k tokens · ~15-20 min</div>
+              </div>
+            </div>
+
+            {approvalError && (
+              <div style={{
+                background: '#fef2f2', border: '1px solid #f87171', color: '#991b1b',
+                padding: 12, borderRadius: 4, fontSize: 12
+              }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>PLAN EXECUTION FAILED</div>
+                <div>Stage: {approvalError.stage}</div>
+                <div>Error: {approvalError.message}</div>
+                <div>Project: {approvalError.project}</div>
+                <div style={{ marginTop: 4, fontSize: 11, color: '#7f1d1d' }}>
+                  Suggested action: Check backend logs and verify that local agent runner is available.
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowPreflight(false)}
+                disabled={approvingState === 'STARTING'}
+              >
+                Review
+              </button>
+              {isLargeTask && (
+                <button
+                  id="btn-approve-recommended-wave"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handleApprovePlan('RECOMMENDED')}
+                  disabled={approvingState === 'STARTING'}
+                >
+                  {approvingState === 'STARTING' ? 'STARTING...' : 'Run Recommended Wave'}
+                </button>
+              )}
+              <button
+                id="btn-approve-and-start"
+                className="btn btn-primary btn-sm"
+                onClick={() => handleApprovePlan('FULL')}
+                disabled={approvingState === 'STARTING'}
+                style={{ fontWeight: 700 }}
+              >
+                {approvingState === 'STARTING' ? 'STARTING...' : approvingState === 'RUNNING' ? 'RUNNING' : '✓ APPROVE & START'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Top Header ──────────────────────────────────────────────────────── */}
       <div className="page-header">
         <div>
@@ -136,7 +260,7 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
                 <span className="mono" style={{ fontSize: 13, fontWeight: 600 }}>
                   {selectedPlan.plan_id}
                 </span>
-                <StatusPill status={selectedPlan.status || 'PROPOSED'} />
+                <StatusPill status={approvingState === 'RUNNING' ? 'RUNNING' : (selectedPlan.status || 'PROPOSED')} />
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
                   v{selectedPlan.version || 1}
                 </span>
@@ -148,26 +272,41 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
           </div>
         </div>
 
-        {/* Primary Plan Actions (Section 11) */}
+        {/* Primary Plan Actions (Section 11 & 18) */}
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {selectedPlan?.status !== 'APPROVED' ? (
+          {selectedPlan?.status !== 'APPROVED' && approvingState !== 'RUNNING' ? (
             <button
               id="btn-approve-plan"
               className="btn btn-primary btn-sm"
-              onClick={handleApprovePlan}
+              onClick={() => setShowPreflight(true)}
+              disabled={approvingState === 'STARTING'}
             >
-              ✓ Approve Plan
+              {approvingState === 'STARTING' ? 'STARTING...' : '✓ Approve Plan'}
             </button>
           ) : (
-            <button className="btn btn-success btn-sm" disabled>
-              ✓ Plan Approved
-            </button>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button className="btn btn-success btn-sm" disabled>
+                {approvingState === 'RUNNING' ? '▶ RUNNING' : '✓ Plan Approved'}
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  if (onNavigate) onNavigate('master')
+                }}
+              >
+                View Live Master Session →
+              </button>
+            </div>
           )}
 
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => {
-              if (onNavigate) onNavigate('tasks')
+              if (selectedPlan?.status !== 'APPROVED' && approvingState !== 'RUNNING') {
+                setShowPreflight(true)
+              } else if (onNavigate) {
+                onNavigate('tasks')
+              }
             }}
           >
             Run Recommended Work
@@ -175,7 +314,13 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
 
           <button
             className="btn btn-secondary btn-sm"
-            onClick={() => setActiveTab('gate')}
+            onClick={() => {
+              if (selectedPlan?.status !== 'APPROVED' && approvingState !== 'RUNNING') {
+                setShowPreflight(true)
+              } else {
+                setActiveTab('gate')
+              }
+            }}
           >
             Run Full Plan
           </button>
@@ -183,7 +328,7 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
           <button
             className="btn btn-secondary btn-sm"
             onClick={handleGeneratePlan}
-            disabled={generating}
+            disabled={generating || approvingState === 'STARTING'}
           >
             {generating ? 'Synthesizing...' : '↻ Re-synthesize'}
           </button>

@@ -160,7 +160,7 @@ export const api = {
   generateVerificationPlan: (body = {}) => req('/supervisor/plan', { method: 'POST', body: JSON.stringify(body) }),
   listVerificationPlans: (params = {}) => req('/supervisor/plans?' + new URLSearchParams(params)),
   getVerificationPlan: (planId) => req(`/supervisor/plan/${planId}`),
-  approveVerificationPlan: (planId) => req(`/supervisor/plan/${planId}/approve`, { method: 'POST' }),
+  approveVerificationPlan: (planId, body = {}) => req(`/supervisor/plan/${planId}/approve`, { method: 'POST', body: JSON.stringify(body) }),
   rejectVerificationPlan: (planId) => req(`/supervisor/plan/${planId}/reject`, { method: 'POST' }),
   replanVerificationPlan: (planId, body) => req(`/supervisor/plan/${planId}/replan`, { method: 'POST', body: JSON.stringify(body) }),
 
