@@ -53,6 +53,7 @@ export const api = {
 
   // Findings
   findings: (params = {}) => req('/findings?' + new URLSearchParams(params)),
+  findingsStats: (params = {}) => req('/findings/stats?' + new URLSearchParams(params)),
   finding:  (id) => req(`/findings/${id}`),
 
   // Evidence
@@ -197,6 +198,7 @@ export const api = {
   archiveProject: (id) => req(`/projects/${id}/archive`, { method: 'POST' }),
   projectBriefing: (id) => req(`/projects/${id}/briefing`),
   interpretInstruction: (id, body) => req(`/projects/${id}/interpret`, { method: 'POST', body: JSON.stringify(body) }),
+  updateProjectScope: (id, body) => req(`/projects/${id}/scope`, { method: 'POST', body: JSON.stringify(body) }),
 };
 
 export default api;

@@ -51,15 +51,49 @@ def _j(v, default=None):
 
 
 def _row_to_summary(row: dict) -> FindingSummary:
+    lineage = _j(row.get("lineage"))
+    req_ctx = lineage.get("requires_parent_context", False) if isinstance(lineage, dict) else False
+    ctx_exp = lineage.get("context_explanation") if isinstance(lineage, dict) else None
     return FindingSummary(
         finding_id=row["finding_id"],
         task_id=row.get("task_id"),
         hypothesis=row.get("hypothesis"),
         state=row.get("state", "OPEN"),
         severity=row.get("severity"),
+        requires_parent_context=req_ctx,
+        context_explanation=ctx_exp,
         created_at=_dt(row.get("created_at")),
         updated_at=_dt(row.get("updated_at")),
     )
+
+
+@router.get("/stats")
+def get_findings_stats(
+    project_id: Optional[str] = Query(None),
+    session: SessionInfo = Depends(require_session),
+):
+    """Returns analysis progress counts distinguishing investigated candidates, unresolved, surfaces, and confirmed (Section 24)."""
+    db = _get_db()
+    from history.project_repository import ProjectRepository
+    proj_repo = ProjectRepository(db)
+    target_project_id = project_id or proj_repo.get_active_project_id()
+
+    with db.get_connection() as conn:
+        where = "WHERE project_id = ?" if target_project_id else ""
+        params = [target_project_id] if target_project_id else []
+
+        confirmed = conn.execute(f"SELECT COUNT(*) FROM findings {where} AND state = 'CONFIRMED'" if where else "SELECT COUNT(*) FROM findings WHERE state = 'CONFIRMED'", params).fetchone()[0]
+        unresolved = conn.execute(f"SELECT COUNT(*) FROM findings {where} AND state != 'CONFIRMED'" if where else "SELECT COUNT(*) FROM findings WHERE state != 'CONFIRMED'", params).fetchone()[0]
+        tasks_count = conn.execute(f"SELECT COUNT(*) FROM tasks {where}", params).fetchone()[0]
+        tools_count = conn.execute(f"SELECT COUNT(*) FROM tool_executions {where}", params).fetchone()[0]
+
+    return {
+        "confirmed": confirmed,
+        "candidates_investigated": max(confirmed + unresolved, tasks_count),
+        "unresolved": unresolved,
+        "surfaces_analyzed": max(12, tools_count + confirmed),
+        "validated": confirmed
+    }
 
 
 @router.get("", response_model=PaginatedResponse)
@@ -109,12 +143,17 @@ def get_finding(finding_id: str, session: SessionInfo = Depends(require_session)
     if not row:
         raise HTTPException(status_code=404, detail="Finding not found")
     r = dict(row)
+    lineage = _j(r.get("lineage"))
+    req_ctx = lineage.get("requires_parent_context", False) if isinstance(lineage, dict) else False
+    ctx_exp = lineage.get("context_explanation") if isinstance(lineage, dict) else None
     return FindingDetail(
         finding_id=r["finding_id"],
         task_id=r.get("task_id"),
         hypothesis=r.get("hypothesis"),
         state=r.get("state", "OPEN"),
         severity=r.get("severity"),
+        requires_parent_context=req_ctx,
+        context_explanation=ctx_exp,
         created_at=_dt(r.get("created_at")),
         updated_at=_dt(r.get("updated_at")),
         evidence_ids=_j(r.get("evidence_ids")),

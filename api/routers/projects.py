@@ -76,49 +76,116 @@ def _inspect_directory_deterministic(target_dir: str) -> Dict[str, Any]:
 
     total_files = len(files)
     rtl_files = [f for f in files if f.suffix.lower() in (".sv", ".v", ".svh", ".vhd", ".vhdl")]
+    rust_files = [f for f in files if f.suffix.lower() == ".rs"]
     c_files = [f for f in files if f.suffix.lower() in (".c", ".h", ".cpp", ".cc", ".cxx", ".hpp")]
     py_files = [f for f in files if f.suffix.lower() == ".py"]
     spec_files = [f for f in files if any(k in f.name.lower() for k in ("spec", "trm", "arch", "hjson", "wavedrom")) or f.suffix.lower() in (".md", ".rst", ".pdf") and "doc" in str(f).lower()]
     build_files = [f for f in files if f.name.lower() in ("makefile", "meson.build", "cmakelists.txt", "cargo.toml", "build.bazel", "fusesoc.core")]
+    has_cargo = any(f.name.lower() == "cargo.toml" for f in build_files) or (path / "Cargo.toml").exists()
 
     has_git = (path / ".git").exists()
     git_rev = "git-head" if has_git else "unversioned"
 
-    # Repository Classification
-    if len(rtl_files) > 20:
+    # Discover parent repository relationships safely (Section 1, 2, 16)
+    parent_repo = None
+    parent_components = []
+    scope_type = "STANDALONE_REPOSITORY"
+    current_check = path.parent
+    for _ in range(4):
+        if current_check == current_check.parent:
+            break
+        if (current_check / ".git").exists() or (current_check / "Cargo.toml").exists() or (current_check / "WORKSPACE").exists():
+            parent_repo = str(current_check)
+            scope_type = "SUBDIRECTORY_COMPONENT"
+            try:
+                parent_components = [
+                    d.name for d in current_check.iterdir()
+                    if d.is_dir() and not d.name.startswith(".") and d.name not in ("target", "build", "node_modules", "dist")
+                ][:12]
+            except Exception:
+                pass
+            break
+        current_check = current_check.parent
+
+    # Repository & Component Classification (Section 3)
+    if len(rust_files) > 0 and len(rtl_files) == 0:
+        classification = "Rust Firmware Component" if has_cargo else "Rust Software Repository"
+        hardware_software = "Firmware / Software"
+        primary_language = "Rust"
+        is_eda_soc = False
+    elif len(rtl_files) > 20:
         classification = "SoC Verification & Security Root of Trust"
+        hardware_software = "Hardware / RTL"
+        primary_language = "SystemVerilog / Verilog"
+        is_eda_soc = True
+    elif len(rtl_files) > 0 and (len(c_files) + len(rust_files) > 0):
+        classification = "Mixed Hardware / Firmware Subsystem"
+        hardware_software = "Mixed HW/SW"
+        primary_language = "Mixed (RTL + Software)"
         is_eda_soc = True
     elif len(rtl_files) > 0:
         classification = "Hardware IP / RTL Subsystem"
+        hardware_software = "Hardware / RTL"
+        primary_language = "SystemVerilog / Verilog"
         is_eda_soc = True
-    elif total_files <= 5:
+    elif total_files <= 5 and len(rust_files) == 0 and len(rtl_files) == 0:
         classification = "Generic Software Directory"
+        hardware_software = "Software"
+        primary_language = "C / C++" if len(c_files) > 0 else ("Python" if len(py_files) > 0 else "Generic")
         is_eda_soc = False
-    elif len(c_files) + len(py_files) > 0:
-        classification = "Embedded Software / Firmware Repository"
+    elif len(c_files) > 0:
+        classification = "Embedded C/C++ Firmware Component"
+        hardware_software = "Firmware / Software"
+        primary_language = "C / C++"
+        is_eda_soc = False
+    elif len(py_files) > 0 and total_files > 5:
+        classification = "Python Application / Framework"
+        hardware_software = "Software"
+        primary_language = "Python"
         is_eda_soc = False
     else:
         classification = "Generic Repository"
+        hardware_software = "General"
+        primary_language = "Unknown"
         is_eda_soc = False
 
-    build_system_str = ", ".join([f.name for f in build_files[:3]]) if build_files else "Not detected"
-
+    if has_cargo:
+        build_system_str = "Cargo"
+    elif any(f.name.lower() == "makefile" for f in build_files):
+        build_system_str = "Makefile"
+    elif any(f.name.lower() == "cmakelists.txt" for f in build_files):
+        build_system_str = "CMake"
+    elif any(f.name.lower() == "meson.build" for f in build_files):
+        build_system_str = "Meson"
+    elif build_files:
+        build_system_str = ", ".join(sorted(list({f.name for f in build_files})))
+    else:
+        build_system_str = "Not detected"
+    readiness = "READY_FOR_SECURITY_ANALYSIS" if (len(rust_files) > 0 or len(c_files) > 0 or len(rtl_files) > 0) else "WAITING_FOR_USER_ACTION"
     file_list_summary = [str(f.relative_to(path)) for f in files[:20]]
 
     return {
         "directory": str(path),
+        "target_scope": path.name,
+        "target_root": str(path),
+        "scope_type": scope_type,
+        "parent_repository_if_known": parent_repo,
+        "parent_components": parent_components,
         "total_files": total_files,
         "rtl_count": len(rtl_files),
+        "rust_count": len(rust_files),
         "c_count": len(c_files),
         "py_count": len(py_files),
         "spec_count": len(spec_files),
         "build_system": build_system_str,
+        "primary_language": primary_language,
+        "hardware_software": hardware_software,
         "is_eda_soc": is_eda_soc,
         "classification": classification,
         "revision": git_rev,
         "sample_files": file_list_summary,
-        "is_small_or_generic": total_files <= 5 and len(rtl_files) == 0,
-        "readiness": "READY_FOR_VERIFICATION" if is_eda_soc else "WAITING_FOR_USER_ACTION",
+        "is_small_or_generic": total_files <= 5 and len(rtl_files) == 0 and len(rust_files) == 0,
+        "readiness": readiness,
     }
 
 
@@ -410,3 +477,60 @@ def interpret_natural_instruction(project_id: str, req: NaturalInstructionReques
                 "role": "VERIFICATION_ENGINEER",
             }
         )
+
+
+class ScopeActionRequest(BaseModel):
+    action: str  # "EXPAND_TO_PARENT" | "SELECTED_SCOPE_ONLY" | "INSPECT_DEPENDENCIES"
+
+
+@router.post("/api/projects/{project_id}/scope", tags=["projects"])
+def manage_project_scope(project_id: str, req: ScopeActionRequest):
+    """
+    Manage project scope expansion between local subdirectory and parent repository (Section 1, 2, 15, 16).
+    """
+    repo = _get_project_repo()
+    p = repo.get_project(project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+
+    meta = p.get("metadata") or {}
+    intake = meta.get("intake") or {}
+    parent_repo = intake.get("parent_repository_if_known")
+
+    if req.action == "EXPAND_TO_PARENT":
+        if not parent_repo or not Path(parent_repo).exists():
+            raise HTTPException(status_code=400, detail="No discoverable parent repository for this project")
+        # Update target directory to parent
+        new_intake = _inspect_directory_deterministic(parent_repo)
+        meta["intake"] = new_intake
+        meta["expanded_from"] = p["target_directory"]
+        meta["scope_state"] = "EXPANDED_PARENT"
+        repo.update_project(project_id, target_directory=parent_repo, metadata=meta)
+        return {
+            "status": "SCOPE_EXPANDED",
+            "project_id": project_id,
+            "target_directory": parent_repo,
+            "intake": new_intake,
+            "message": f"Project scope expanded to parent repository at '{parent_repo}'"
+        }
+    elif req.action == "SELECTED_SCOPE_ONLY":
+        meta["scope_state"] = "LOCAL_ONLY"
+        repo.update_project(project_id, metadata=meta)
+        return {
+            "status": "SCOPE_LOCAL_ONLY",
+            "project_id": project_id,
+            "target_directory": p["target_directory"],
+            "message": f"Local subdirectory analysis scope retained for '{p['target_directory']}'"
+        }
+    elif req.action == "INSPECT_DEPENDENCIES":
+        return {
+            "status": "DEPENDENCY_CONTEXT",
+            "project_id": project_id,
+            "target_directory": p["target_directory"],
+            "parent_repository": parent_repo,
+            "parent_components": intake.get("parent_components", []),
+            "message": "Parent components available for cross-component validation"
+        }
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown scope action: {req.action}")
+

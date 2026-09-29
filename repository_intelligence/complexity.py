@@ -100,18 +100,18 @@ def classify_complexity(
     for f in path.rglob("*"):
         if f.is_file() and not any(part.startswith(".") for part in f.parts):
             file_count += 1
-            if f.suffix in (".v", ".sv", ".c", ".h", ".cpp", ".py"):
+            if f.suffix in (".v", ".sv", ".c", ".h", ".cpp", ".py", ".rs"):
                 try:
                     content = f.read_text(encoding="utf-8", errors="ignore")[:50000]
                 except Exception:
                     continue
 
-                # Clock signals
+                # Clock signals (RTL)
                 for m in re.findall(r"\b(clk[a-zA-Z0-9_]*|clock[a-zA-Z0-9_]*)\b", content, re.IGNORECASE):
                     if len(m) <= 20:
                         clocks.add(m.lower())
 
-                # Reset signals
+                # Reset signals (RTL)
                 for m in re.findall(r"\b(rst[a-zA-Z0-9_]*|reset[a-zA-Z0-9_]*)\b", content, re.IGNORECASE):
                     if len(m) <= 20:
                         resets.add(m.lower())
@@ -120,13 +120,13 @@ def classify_complexity(
                 for m in re.findall(r"\bmodule\s+([a-zA-Z0-9_]+)", content):
                     modules.add(m)
 
-                # Security keywords
-                for kw in ("crypto", "aes", "sha", "key", "secret", "pmp", "firewall", "privilege", "auth"):
+                # Security keywords (Hardware & Firmware)
+                for kw in ("crypto", "aes", "sha", "key", "secret", "pmp", "firewall", "privilege", "auth", "pauser", "locality", "dpe", "pcr", "ladder", "manifest"):
                     if re.search(r"\b" + kw + r"\b", content, re.IGNORECASE):
                         sec_terms.add(kw)
 
                 # Interconnect protocols
-                for ic in ("axi", "ahb", "tlul", "tilelink", "wishbone", "apb"):
+                for ic in ("axi", "ahb", "tlul", "tilelink", "wishbone", "apb", "mailbox"):
                     if re.search(r"\b" + ic + r"\b", content, re.IGNORECASE):
                         interconnects.add(ic.upper())
 
@@ -135,11 +135,11 @@ def classify_complexity(
                     evidence.has_debug = True
 
                 # Boot
-                if re.search(r"\b(bootrom|boot_mode|rom_exec)\b", content, re.IGNORECASE):
+                if re.search(r"\b(bootrom|boot_mode|rom_exec|fmc|runtime)\b", content, re.IGNORECASE):
                     evidence.has_boot = True
 
                 # Fuses / OTP
-                if re.search(r"\b(otp|efuse|e_fuse)\b", content, re.IGNORECASE):
+                if re.search(r"\b(otp|efuse|e_fuse|fuse_bank)\b", content, re.IGNORECASE):
                     evidence.has_fuses = True
 
                 # Power modes
@@ -147,7 +147,7 @@ def classify_complexity(
                     evidence.has_power_modes = True
 
                 # Product variants
-                if re.search(r"\b(`ifdef|`ifndef)\b", content):
+                if re.search(r"\b(`ifdef|`ifndef|#\[cfg)\b", content):
                     evidence.has_variants = True
 
                 # CSRs
@@ -196,40 +196,47 @@ def evaluate_bucket_evidence(
 ) -> Tuple[BucketApplicability, str]:
     """
     Evaluates applicability of an SoC taxonomy bucket with explicit evidence-based rationale.
+    Firmware components reject pure hardware RTL buckets (Section 9).
     """
     # If user explicitly requested FULL_SOC, permit all relevant buckets with explanation
     if intent == IntentDepth.FULL_SOC:
         return BucketApplicability.APPLICABLE, f"Included via full SoC verification taxonomy requested by operator."
 
-    # For MICRO and SMALL repositories without full escalation:
-    # Most specialized buckets are NOT_APPLICABLE
+    is_pure_software = software_detected and not rtl_detected
+
     if bucket == SoCBucket.RESETS:
+        if not rtl_detected:
+            return BucketApplicability.NOT_APPLICABLE, "Not applicable: selected scope is a firmware component without RTL reset controller."
         if evidence.has_resets:
             sigs = ", ".join(evidence.reset_signals[:3])
             return BucketApplicability.APPLICABLE, f"Reset signals detected ({sigs}) with reset controller logic."
         return BucketApplicability.NOT_APPLICABLE, "No dedicated reset controller or reset crossings detected."
 
     if bucket == SoCBucket.CLOCKS:
+        if not rtl_detected:
+            return BucketApplicability.NOT_APPLICABLE, "Not applicable: selected scope is a firmware component without clock tree synthesis."
         if evidence.has_clocks:
             sigs = ", ".join(evidence.clock_signals[:3])
             return BucketApplicability.APPLICABLE, f"Clock distribution signals detected ({sigs})."
         return BucketApplicability.NOT_APPLICABLE, "No clock generation or PLL signals detected."
 
     if bucket in (SoCBucket.CDC, SoCBucket.RDC):
+        if not rtl_detected:
+            return BucketApplicability.NOT_APPLICABLE, "Not applicable: clock/reset domain crossings require multi-clock RTL logic."
         if evidence.multi_clock:
             return BucketApplicability.APPLICABLE, f"Multiple clock domains detected ({', '.join(evidence.clock_signals[:3])})."
         return BucketApplicability.NOT_APPLICABLE, "Single clock/reset domain; cross-domain crossing not applicable."
 
     if bucket == SoCBucket.SECURITY:
-        if evidence.has_security_signals or intent in (IntentDepth.DEEP, IntentDepth.STANDARD):
-            terms = ", ".join(evidence.security_keywords) if evidence.security_keywords else "standard security baseline"
+        if evidence.has_security_signals or is_pure_software or intent in (IntentDepth.DEEP, IntentDepth.STANDARD):
+            terms = ", ".join(evidence.security_keywords) if evidence.security_keywords else "firmware security invariants"
             return BucketApplicability.APPLICABLE, f"Security verification applicable ({terms})."
         return BucketApplicability.NOT_APPLICABLE, "No cryptographic or security privilege gates detected."
 
     if bucket == SoCBucket.IP_BOUNDARY:
         if rtl_detected:
             return BucketApplicability.APPLICABLE, f"RTL interface ports and pin boundaries present ({evidence.module_count} modules)."
-        return BucketApplicability.NOT_APPLICABLE, "No hardware RTL boundaries found."
+        return BucketApplicability.NOT_APPLICABLE, "Not applicable: firmware component with software API boundaries instead of RTL ports."
 
     if bucket == SoCBucket.CONNECTIVITY:
         if evidence.has_interconnect or evidence.module_count > 1:

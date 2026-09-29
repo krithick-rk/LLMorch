@@ -30,6 +30,7 @@ from repository_intelligence.complexity import (
     ComplexityTier, IntentDepth, classify_complexity,
     parse_intent_depth, evaluate_bucket_evidence, get_task_limit_for_tier
 )
+from repository_intelligence.rust_security_scanner import scan_rust_security_surfaces
 
 
 class Supervisor:
@@ -40,6 +41,8 @@ class Supervisor:
 
     def __init__(self, repo_path: Optional[str] = None, *args, **kwargs):
         self.repo_path = repo_path
+
+    generate_plan = None  # Bound below
 
     def synthesize_verification_plan(
         self,
@@ -114,85 +117,142 @@ class Supervisor:
         objectives: List[VerificationObjective] = []
         req_list = requirements or []
 
-        # Sort applicable buckets by architectural relevance
-        applicable_buckets = [b for b in SoCBucket if bucket_applicability.get(b.value) == BucketApplicability.APPLICABLE.value]
+        # Check for pure firmware / software component with security surfaces (Section 8, 9, 11, 12)
+        discovered_surfaces, _ = scan_rust_security_surfaces(repository_path)
+        is_firmware_target = len(discovered_surfaces) > 0 or (preflight and not preflight.rtl_detected and preflight.software_detected)
+
         max_tasks = get_task_limit_for_tier(tier, depth)
-
-        # Bound applicable buckets to max_tasks for small repositories (Section 19)
-        if len(applicable_buckets) > max_tasks:
-            priority_order = [
-                SoCBucket.RESETS, SoCBucket.CLOCKS, SoCBucket.IP_BOUNDARY,
-                SoCBucket.SECURITY, SoCBucket.CONNECTIVITY, SoCBucket.CDC,
-                SoCBucket.CLOSURE
-            ]
-            prioritized = [b for b in priority_order if b in applicable_buckets]
-            other_b = [b for b in applicable_buckets if b not in prioritized]
-            applicable_buckets = (prioritized + other_b)[:max_tasks]
-
-        for soc_b in applicable_buckets:
-            b_def = SOC_BUCKET_DEFINITIONS[soc_b]
-            matched_reqs = [r for r in req_list if r.primary_bucket == soc_b]
-            if matched_reqs:
-                for r in matched_reqs:
-                    obj = VerificationObjective(
-                        requirement_id=r.requirement_id,
-                        bucket=soc_b,
-                        title=f"{b_def.name}: {r.title}",
-                        statement=f"Verify {b_def.name} conformance to requirement '{r.title}': {r.description[:100]}",
-                        target_components=r.affected_components or [repository_name],
-                        verification_method="SIMULATION" if soc_b in (SoCBucket.CONNECTIVITY, SoCBucket.CROSS_IP_FLOWS) else "FORMAL"
-                    )
-                    objectives.append(obj)
-            else:
+        if is_firmware_target and discovered_surfaces:
+            # Generate hypothesis-driven objectives mapped to extracted security surfaces (Section 11, 12)
+            limit = min(max_tasks, len(discovered_surfaces))
+            for surf in discovered_surfaces[:limit]:
                 obj = VerificationObjective(
-                    bucket=soc_b,
-                    title=f"{b_def.name} Verification",
-                    statement=f"Verify structural and functional {b_def.name} integrity ({b_def.scope_description})",
+                    bucket=SoCBucket.SECURITY if surf.category in ("AUTHORIZATION", "INTEGER_ARITHMETIC", "CRYPTOGRAPHY") else SoCBucket.BOOT,
+                    title=surf.title,
+                    statement=surf.suggested_task_objective,
                     target_components=[repository_name],
-                    verification_method="STATIC_LINT" if soc_b in (SoCBucket.IP_BOUNDARY, SoCBucket.CLOCKS, SoCBucket.RESETS) else "SIMULATION"
+                    verification_method="SOURCE_INSPECTION"
                 )
                 objectives.append(obj)
+        else:
+            # Sort applicable buckets by architectural relevance
+            applicable_buckets = [b for b in SoCBucket if bucket_applicability.get(b.value) == BucketApplicability.APPLICABLE.value]
+
+            # Bound applicable buckets to max_tasks for small repositories (Section 19)
+            if len(applicable_buckets) > max_tasks:
+                priority_order = [
+                    SoCBucket.RESETS, SoCBucket.CLOCKS, SoCBucket.IP_BOUNDARY,
+                    SoCBucket.SECURITY, SoCBucket.CONNECTIVITY, SoCBucket.CDC,
+                    SoCBucket.CLOSURE
+                ]
+                prioritized = [b for b in priority_order if b in applicable_buckets]
+                other_b = [b for b in applicable_buckets if b not in prioritized]
+                applicable_buckets = (prioritized + other_b)[:max_tasks]
+
+            for soc_b in applicable_buckets:
+                b_def = SOC_BUCKET_DEFINITIONS[soc_b]
+                matched_reqs = [r for r in req_list if r.primary_bucket == soc_b]
+                if matched_reqs:
+                    for r in matched_reqs:
+                        obj = VerificationObjective(
+                            requirement_id=r.requirement_id,
+                            bucket=soc_b,
+                            title=f"{b_def.name}: {r.title}",
+                            statement=f"Verify {b_def.name} conformance to requirement '{r.title}': {r.description[:100]}",
+                            target_components=r.affected_components or [repository_name],
+                            verification_method="SIMULATION" if soc_b in (SoCBucket.CONNECTIVITY, SoCBucket.CROSS_IP_FLOWS) else "FORMAL"
+                        )
+                        objectives.append(obj)
+                else:
+                    obj = VerificationObjective(
+                        bucket=soc_b,
+                        title=f"{b_def.name} Verification",
+                        statement=f"Verify structural and functional {b_def.name} integrity ({b_def.scope_description})",
+                        target_components=[repository_name],
+                        verification_method="STATIC_LINT" if soc_b in (SoCBucket.IP_BOUNDARY, SoCBucket.CLOCKS, SoCBucket.RESETS) else "SIMULATION"
+                    )
+                    objectives.append(obj)
 
         # 5. Decompose Objectives into Bounded Work Packages
         work_packages: List[WorkPackage] = []
         proposed_questions: List[Dict[str, Any]] = []
 
-        objs_by_bucket: Dict[SoCBucket, List[VerificationObjective]] = {}
-        for obj in objectives:
-            objs_by_bucket.setdefault(obj.bucket, []).append(obj)
+        if is_firmware_target and discovered_surfaces:
+            # Group by surface category into focused firmware work packages
+            objs_by_title: Dict[str, List[VerificationObjective]] = {}
+            for obj in objectives:
+                objs_by_title.setdefault(obj.title, []).append(obj)
 
-        for bucket, b_objs in objs_by_bucket.items():
-            b_def = SOC_BUCKET_DEFINITIONS[bucket]
-            wp_id = f"wp-{uuid.uuid4().hex[:8]}"
+            for title, b_objs in objs_by_title.items():
+                wp_id = f"wp-{uuid.uuid4().hex[:8]}"
+                est_tokens = 6000
+                est_seconds = 45
+                wp = WorkPackage(
+                    package_id=wp_id,
+                    plan_id=plan_id,
+                    name=f"WP: {title}",
+                    description=b_objs[0].statement,
+                    bucket=b_objs[0].bucket,
+                    role="Firmware Security Researcher",
+                    objective_ids=[o.objective_id for o in b_objs],
+                    estimated_tokens=est_tokens,
+                    estimated_duration_seconds=est_seconds,
+                    cost_tier=CostTier.LIGHTWEIGHT,
+                    recommendation_mode=ExecutionRecommendationMode.AUTO_EXECUTE,
+                    status=WorkPackageStatus.PROPOSED
+                )
+                work_packages.append(wp)
 
-            # Scaled token and duration estimation (Section 20 & 21)
-            if tier == ComplexityTier.MICRO:
-                est_tokens = len(b_objs) * 4000 + 2000
-                est_seconds = len(b_objs) * 30 + 15
-            elif tier == ComplexityTier.SMALL:
-                est_tokens = len(b_objs) * 6000 + 4000
-                est_seconds = len(b_objs) * 45 + 30
-            else:
-                est_tokens = len(b_objs) * 12000 + 8000
-                est_seconds = len(b_objs) * 60 + 60
+            # Check if any surface requires parent context (Section 15, 16, 17)
+            if any(s.requires_parent_context for s in discovered_surfaces):
+                proposed_questions.append({
+                    "question_id": f"q-scope-{uuid.uuid4().hex[:6]}",
+                    "reason": "Hardware register semantics required for cross-component validation",
+                    "question": "The selected directory appears to be the Caliptra runtime component. Some security properties may depend on parent-repository hardware semantics. Would you like me to: [Analyze runtime only], [Expand to parent repository], [Inspect required dependencies in stages]?",
+                    "options": [
+                        "Analyze runtime only (focus on local firmware evidence)",
+                        "Expand to parent repository (include RTL and drivers)",
+                        "Inspect required dependencies in stages"
+                    ],
+                    "default_option": "Analyze runtime only (focus on local firmware evidence)"
+                })
+        else:
+            objs_by_bucket: Dict[SoCBucket, List[VerificationObjective]] = {}
+            for obj in objectives:
+                objs_by_bucket.setdefault(obj.bucket, []).append(obj)
 
-            cost_tier = CostTier.LIGHTWEIGHT if est_tokens < 30000 else (CostTier.MODERATE if est_tokens < 100000 else CostTier.EXPENSIVE)
+            for bucket, b_objs in objs_by_bucket.items():
+                b_def = SOC_BUCKET_DEFINITIONS[bucket]
+                wp_id = f"wp-{uuid.uuid4().hex[:8]}"
 
-            wp = WorkPackage(
-                package_id=wp_id,
-                plan_id=plan_id,
-                name=f"WP: {b_def.name} Verification",
-                description=f"Bounded work package targeting {len(b_objs)} objectives under {b_def.name}",
-                bucket=bucket,
-                role=b_def.recommended_role,
-                objective_ids=[o.objective_id for o in b_objs],
-                estimated_tokens=est_tokens,
-                estimated_duration_seconds=est_seconds,
-                cost_tier=cost_tier,
-                recommendation_mode=ExecutionRecommendationMode.AUTO_EXECUTE if cost_tier == CostTier.LIGHTWEIGHT else ExecutionRecommendationMode.RECOMMEND_EXECUTION,
-                status=WorkPackageStatus.PROPOSED
-            )
-            work_packages.append(wp)
+                # Scaled token and duration estimation (Section 20 & 21)
+                if tier == ComplexityTier.MICRO:
+                    est_tokens = len(b_objs) * 4000 + 2000
+                    est_seconds = len(b_objs) * 30 + 15
+                elif tier == ComplexityTier.SMALL:
+                    est_tokens = len(b_objs) * 6000 + 4000
+                    est_seconds = len(b_objs) * 45 + 30
+                else:
+                    est_tokens = len(b_objs) * 12000 + 8000
+                    est_seconds = len(b_objs) * 60 + 60
+
+                cost_tier = CostTier.LIGHTWEIGHT if est_tokens < 30000 else (CostTier.MODERATE if est_tokens < 100000 else CostTier.EXPENSIVE)
+
+                wp = WorkPackage(
+                    package_id=wp_id,
+                    plan_id=plan_id,
+                    name=f"WP: {b_def.name} Verification",
+                    description=f"Bounded work package targeting {len(b_objs)} objectives under {b_def.name}",
+                    bucket=bucket,
+                    role=b_def.recommended_role,
+                    objective_ids=[o.objective_id for o in b_objs],
+                    estimated_tokens=est_tokens,
+                    estimated_duration_seconds=est_seconds,
+                    cost_tier=cost_tier,
+                    recommendation_mode=ExecutionRecommendationMode.AUTO_EXECUTE if cost_tier == CostTier.LIGHTWEIGHT else ExecutionRecommendationMode.RECOMMEND_EXECUTION,
+                    status=WorkPackageStatus.PROPOSED
+                )
+                work_packages.append(wp)
 
         # Check for Missing Context or Ambiguities requiring Analyst Decision
         if preflight and not preflight.build_system_detected and preflight.rtl_detected and tier not in (ComplexityTier.MICRO, ComplexityTier.SMALL):
@@ -251,6 +311,8 @@ class Supervisor:
         )
 
         return plan, work_packages, objectives, proposed_questions
+
+    generate_plan = synthesize_verification_plan
 
     def propose_replan(
         self,

@@ -201,6 +201,8 @@ class FindingSummary(BaseModel):
     hypothesis: Optional[str] = None
     state: str = "OPEN"
     severity: Optional[str] = None
+    requires_parent_context: bool = False
+    context_explanation: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

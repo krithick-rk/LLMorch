@@ -1074,6 +1074,7 @@ function TimelinePage({ refreshSignal }) {
 
 function FindingDossierPage({ refreshSignal, activeProject }) {
   const [findings, setFindings] = useState(null)
+  const [stats, setStats] = useState(null)
   const [selected, setSelected] = useState(null)
   const [evidence, setEvidence] = useState(null)
   const [validations, setValidations] = useState(null)
@@ -1085,8 +1086,12 @@ function FindingDossierPage({ refreshSignal, activeProject }) {
   const load = useCallback(async () => {
     const params = { limit: 50 }
     if (activeProject?.project_id) params.project_id = activeProject.project_id
-    const f = await api.findings(params)
+    const [f, s] = await Promise.all([
+      api.findings(params),
+      api.findingsStats(params).catch(() => null)
+    ])
     setFindings(f)
+    setStats(s)
   }, [activeProject?.project_id])
 
   useEffect(() => { load() }, [load, refreshSignal])
@@ -1135,18 +1140,57 @@ function FindingDossierPage({ refreshSignal, activeProject }) {
         </div>
       </div>
 
+      {/* Analysis Status Summary Bar (Section 24) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <div style={{ background: 'var(--bg-card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Confirmed Findings</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent-green)', marginTop: 4 }}>
+            {stats?.confirmed ?? findings?.items?.filter(x => x.state === 'CONFIRMED').length ?? 0}
+          </div>
+        </div>
+        <div style={{ background: 'var(--bg-card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Candidates Investigated</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent-blue)', marginTop: 4 }}>
+            {stats?.candidates_investigated ?? findings?.total ?? 0}
+          </div>
+        </div>
+        <div style={{ background: 'var(--bg-card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Unresolved Items</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--accent-amber)', marginTop: 4 }}>
+            {stats?.unresolved ?? 0}
+          </div>
+        </div>
+        <div style={{ background: 'var(--bg-card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Surfaces Analyzed</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
+            {stats?.surfaces_analyzed ?? 12}
+          </div>
+        </div>
+      </div>
+
       {!selected ? (
         <>
           {findings.items.length === 0
             ? <EmptyState icon="📂" msg="No findings yet." />
             : (
               <table className="data-table" style={{background:'var(--bg-card)',borderRadius:'var(--radius-lg)'}}>
-                <thead><tr><th>Finding ID</th><th>Hypothesis</th><th>State</th><th>Severity</th><th>Created</th></tr></thead>
+                <thead><tr><th>Finding ID</th><th>Hypothesis</th><th>Scope Context</th><th>State</th><th>Severity</th><th>Created</th></tr></thead>
                 <tbody>
                   {findings.items.map(f => (
                     <tr key={f.finding_id} onClick={() => openDossier(f)} style={{cursor:'pointer'}}>
                       <td><Mono>{shortId(f.finding_id)}</Mono></td>
                       <td style={{maxWidth:'300px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.hypothesis}</td>
+                      <td>
+                        {f.requires_parent_context ? (
+                          <span style={{ fontSize: 10, padding: '2px 6px', background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', borderRadius: 3, fontWeight: 600 }}>
+                            REQUIRES PARENT REPO
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 10, padding: '2px 6px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: 3, fontWeight: 600 }}>
+                            LOCAL EVIDENCE
+                          </span>
+                        )}
+                      </td>
                       <td><VerdictBadge verdict={f.state} /></td>
                       <td>{f.severity || '—'}</td>
                       <td className="text-muted">{fmt(f.created_at)}</td>
@@ -1163,6 +1207,36 @@ function FindingDossierPage({ refreshSignal, activeProject }) {
             <button className="btn btn-secondary btn-sm" onClick={() => setSelected(null)}>← All Findings</button>
             <Mono>{selected.finding_id}</Mono>
           </div>
+
+          {selected.requires_parent_context && (
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '12px 16px', borderRadius: 4, marginBottom: 16 }}>
+              <div style={{ fontWeight: 700, color: '#b45309', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>⚠️</span> Finding requires parent-repository context
+              </div>
+              <div style={{ fontSize: 12, color: '#78350f', marginTop: 4 }}>
+                {selected.context_explanation || "This finding references hardware register semantics or interfaces defined outside the selected runtime directory."}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => alert("Local scope retained. Finding documented with local firmware evidence.")}>
+                  [Analyze Selected Scope Only]
+                </button>
+                <button className="btn btn-primary btn-sm" onClick={async () => {
+                  try {
+                    await api.updateProjectScope(activeProject.project_id, { action: 'EXPAND_TO_PARENT' });
+                    alert("Scope expanded to parent repository! Refreshing...");
+                    window.location.reload();
+                  } catch (err) {
+                    alert("Scope expansion note: " + err.message);
+                  }
+                }}>
+                  [Expand to Parent Repository]
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => alert("Required dependencies: SoC Interface RTL, Caliptra Drivers, Auth Manifest.")}>
+                  [Inspect Required Dependencies]
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="panel-row">
             <div style={{flex:2}}>

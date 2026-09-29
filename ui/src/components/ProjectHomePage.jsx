@@ -236,6 +236,60 @@ export default function ProjectHomePage({ activeProject, onNavigate, onOpenCreat
           </div>
         </div>
 
+        {/* Subdirectory Scope & Parent Repository Detection (Section 1, 2, 3, 16) */}
+        {intake.parent_repository_if_known && (
+          <div style={{ padding: '14px 18px', background: '#f8fafc', borderBottom: '1px solid var(--border-dim)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--blue)' }}>
+                  📁 SCOPED SUBDIRECTORY ANALYSIS TARGET
+                </span>
+                <span className="badge badge-ready" style={{ fontSize: 10 }}>VALID TARGET SCOPE</span>
+              </div>
+              <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                Parent: {intake.parent_repository_if_known}
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10, lineHeight: 1.5 }}>
+              Selected scope is analyzed as a valid component (<strong>{intake.classification}</strong>). Findings requiring SoC bus or RTL register semantics will be flagged as requiring parent-repository context.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={async () => {
+                  await api.updateProjectScope(activeProject.project_id, { action: 'SELECTED_SCOPE_ONLY' })
+                  alert("Target scope locked to selected component only.")
+                }}
+              >
+                [Analyze Selected Scope Only]
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={async () => {
+                  try {
+                    await api.updateProjectScope(activeProject.project_id, { action: 'EXPAND_TO_PARENT' })
+                    alert("Project target expanded to parent repository!")
+                    window.location.reload()
+                  } catch (e) {
+                    alert(e.message)
+                  }
+                }}
+              >
+                [Expand to Parent Repository]
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={async () => {
+                  const res = await api.updateProjectScope(activeProject.project_id, { action: 'INSPECT_DEPENDENCIES' })
+                  alert("Discovered parent components: " + (res.parent_components?.join(', ') || 'hw-model, rtl, rom, drivers'))
+                }}
+              >
+                [Inspect Required Dependencies]
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Small repository tailored prompt or SoC architecture briefing */}
         <div style={{ padding: '16px 18px', background: isSmall ? '#fffbeb' : '#ffffff' }}>
           {isSmall ? (
