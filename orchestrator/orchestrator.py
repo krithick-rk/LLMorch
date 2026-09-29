@@ -634,6 +634,32 @@ class CentralOrchestrator:
                 stdout_str = ""
                 stderr_str = str(e)
             t_end = datetime.now(timezone.utc).isoformat()
+            try:
+                from history.project_logger import ProjectLogger
+                dur_ms = max(0.0, (datetime.fromisoformat(t_end) - datetime.fromisoformat(t_start)).total_seconds() * 1000.0)
+                ProjectLogger.log_tool_execution(
+                    project_id=project_id,
+                    run_id=run_id,
+                    tool_id=tool_name,
+                    command=cmd_str,
+                    exit_code=exit_code,
+                    duration_ms=dur_ms,
+                    stdout_snippet=stdout_str[:500],
+                    stderr_snippet=stderr_str[:500],
+                    task_id=tid
+                )
+                ProjectLogger.log_agent_execution(
+                    project_id=project_id,
+                    run_id=run_id,
+                    agent_id=assigned_agent,
+                    task_id=tid,
+                    attempt_id=f"att-{uuid.uuid4().hex[:6]}",
+                    role="Firmware Security Analyst" if is_rust_fw else "Verification Engineer",
+                    model="codex-davinci-002",
+                    message=f"Agent completed tool execution: {tool_name} exit={exit_code}"
+                )
+            except Exception:
+                pass
 
             exec_id = f"texec-{uuid.uuid4().hex[:8]}"
             evi_id = f"evi-{uuid.uuid4().hex[:8]}"

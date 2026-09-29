@@ -71,15 +71,31 @@ class ClosureEngine:
             return snap
 
         with self.db.get_connection() as conn:
-            # Query objectives
+            # Query objectives scoped to this plan or project
             objs = conn.execute("""
-                SELECT objective_id, requirement_id, bucket, status FROM verification_objectives
-            """).fetchall()
+                SELECT objective_id, requirement_id, bucket, status FROM verification_objectives WHERE plan_id = ?
+            """, (plan_id,)).fetchall()
+            if not objs and plan.project_id:
+                objs = conn.execute("""
+                    SELECT objective_id, requirement_id, bucket, status FROM verification_objectives WHERE project_id = ?
+                """, (plan.project_id,)).fetchall()
+            if not objs:
+                objs = conn.execute("""
+                    SELECT objective_id, requirement_id, bucket, status FROM verification_objectives
+                """).fetchall()
 
-            # Query evidence items linked to tasks
+            # Query evidence items linked to tasks in this plan or project
             evidence_rows = conn.execute("""
-                SELECT evidence_id, task_id, source_type, exit_status FROM evidence
-            """).fetchall()
+                SELECT e.evidence_id, e.task_id, e.source_type, e.exit_status 
+                FROM evidence e
+                WHERE e.task_id IN (
+                    SELECT task_id FROM tasks WHERE plan_id = ? OR project_id = ?
+                )
+            """, (plan_id, plan.project_id or "")).fetchall()
+            if not evidence_rows:
+                evidence_rows = conn.execute("""
+                    SELECT evidence_id, task_id, source_type, exit_status FROM evidence
+                """).fetchall()
 
             # Query open gaps
             gaps_rows = conn.execute("""

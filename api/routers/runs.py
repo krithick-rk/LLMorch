@@ -142,9 +142,11 @@ def _compute_active_elapsed(row: dict) -> float:
     return float(row.get("active_duration_seconds") or 0.0)
 
 
-def _build_run_summary(row: dict) -> RunSummary:
+def _build_run_summary(row: dict, index: Optional[int] = None) -> RunSummary:
+    disp_id = row.get("display_id") or (f"RUN-{index:03d}" if index is not None else None)
     return RunSummary(
         run_id=row["run_id"],
+        display_id=disp_id,
         task_id=row.get("task_id", ""),
         agent_id=row.get("agent_id", ""),
         status=row.get("status", "UNKNOWN"),
@@ -192,7 +194,10 @@ def list_runs(
                 "SELECT * FROM runs ORDER BY start_time DESC LIMIT ? OFFSET ?",
                 (limit, offset)
             ).fetchall()
-    items = [_build_run_summary(dict(r)).model_dump() for r in rows]
+    items = []
+    for idx, r in enumerate(rows):
+        run_num = total - (offset + idx) if total > 0 else (idx + 1)
+        items.append(_build_run_summary(dict(r), index=max(1, run_num)).model_dump())
     return PaginatedResponse(total=total, limit=limit, offset=offset, items=items)
 
 

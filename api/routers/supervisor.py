@@ -166,7 +166,11 @@ def get_verification_plan(
 
     work_packages = wp_repo.list_for_plan(plan_id)
     with db.get_connection() as conn:
-        objs = conn.execute("SELECT * FROM verification_objectives").fetchall()
+        objs = conn.execute("SELECT * FROM verification_objectives WHERE plan_id = ?", (plan_id,)).fetchall()
+        if not objs and plan.project_id:
+            objs = conn.execute("SELECT * FROM verification_objectives WHERE project_id = ?", (plan.project_id,)).fetchall()
+        if not objs:
+            objs = conn.execute("SELECT * FROM verification_objectives").fetchall()
 
     return {
         "plan": plan.model_dump(),

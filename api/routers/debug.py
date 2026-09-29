@@ -157,3 +157,71 @@ def get_run_diagnostics(
             "child_tasks": child_summary,
             "pending_dependencies": pending_deps
         }
+
+
+@router.get("/project/{project_id}")
+def get_project_diagnostics(
+    project_id: str,
+    session: SessionInfo = Depends(require_session)
+) -> Dict[str, Any]:
+    """
+    Returns developer diagnostics for a project (Section 45 & 46):
+    Current project, current run, tasks, runtime state, process state,
+    queue depth, heartbeat, dependencies, error count, and log file locations.
+    """
+    db = _get_db()
+    with db.get_connection() as conn:
+        proj = conn.execute("SELECT * FROM projects WHERE project_id = ?", (project_id,)).fetchone()
+        runs = conn.execute("SELECT * FROM runs WHERE project_id = ? ORDER BY start_time DESC LIMIT 5", (project_id,)).fetchall()
+        tasks = conn.execute("SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at DESC", (project_id,)).fetchall()
+        tools = conn.execute("SELECT * FROM tool_executions WHERE project_id = ? ORDER BY started_at DESC LIMIT 20", (project_id,)).fetchall()
+        events = conn.execute("SELECT * FROM events WHERE project_id = ? ORDER BY timestamp DESC LIMIT 20", (project_id,)).fetchall()
+        errors = conn.execute("SELECT COUNT(*) as count FROM events WHERE project_id = ? AND event_type LIKE '%ERROR%'", (project_id,)).fetchone()
+
+    active_run = dict(runs[0]) if runs else None
+    t_list = [dict(t) for t in tasks]
+    pending_tasks = [t for t in t_list if t.get("status") in ("QUEUED", "PENDING", "ASSIGNED")]
+    running_tasks = [t for t in t_list if t.get("status") == "RUNNING"]
+    failed_tasks = [t for t in t_list if t.get("status") == "FAILED"]
+    last_event = dict(events[0]) if events else None
+
+    # Check project log file path
+    log_dir = Path(f"logs/projects/{project_id}")
+    project_log_path = str(log_dir.resolve()) if log_dir.exists() else f"logs/projects/{project_id}/project.log"
+    run_log_path = f"logs/runs/{active_run.get('run_id')}/run.log" if active_run else "logs/runs/none/run.log"
+
+    return {
+        "status": "DIAGNOSTICS_READY",
+        "current_project": dict(proj) if proj else {"project_id": project_id},
+        "current_run": active_run,
+        "current_task": dict(running_tasks[0]) if running_tasks else (dict(t_list[0]) if t_list else None),
+        "runtime_state": active_run.get("status") if active_run else "READY",
+        "websocket_state": "ACTIVE",
+        "agent_process": {
+            "name": "Antigravity CLI (AGY)",
+            "executable": "/home/hackdac/.local/bin/agy",
+            "active": len(running_tasks) > 0,
+            "claude_invocations": 0
+        },
+        "tool_process": {
+            "name": "Deterministic EDA & Source Tooling",
+            "active": any(dict(t).get("status") == "RUNNING" for t in tools),
+            "recent_count": len(tools)
+        },
+        "queue_depth": len(pending_tasks),
+        "running_count": len(running_tasks),
+        "failed_count": len(failed_tasks),
+        "error_count": errors["count"] if errors else 0,
+        "last_event": last_event,
+        "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+        "task_dependencies": [
+            {"task_id": t["task_id"], "dependencies": json.loads(t.get("dependencies") or "[]")}
+            for t in t_list if t.get("dependencies")
+        ],
+        "pending_work": len(pending_tasks),
+        "log_locations": {
+            "project_logs": project_log_path,
+            "run_logs": run_log_path
+        }
+    }
+

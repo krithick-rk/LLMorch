@@ -38,12 +38,14 @@ class AGYAdapter(BaseAgentAdapter):
 
     def _detect_cli_executable(self) -> str:
         """Detects available Antigravity CLI binary on the host system."""
-        candidates = ["antigravity-cli", "antigravity", "agy"]
+        candidates = ["antigravity-cli", "agy", "antigravity"]
         for candidate in candidates:
             path = shutil.which(candidate)
-            if path:
+            if path and not path.endswith("/antigravity"):
                 return path
-        return "antigravity"
+            elif path and candidate == "agy":
+                return path
+        return shutil.which("agy") or "agy"
 
     def start(self, task: Task) -> Run:
         """Starts real Antigravity process attempt for given Task."""

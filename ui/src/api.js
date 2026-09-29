@@ -199,6 +199,7 @@ export const api = {
   projectBriefing: (id) => req(`/projects/${id}/briefing`),
   interpretInstruction: (id, body) => req(`/projects/${id}/interpret`, { method: 'POST', body: JSON.stringify(body) }),
   updateProjectScope: (id, body) => req(`/projects/${id}/scope`, { method: 'POST', body: JSON.stringify(body) }),
+  getProjectScope: (id) => req(`/projects/${id}/scope`),
 };
 
 export default api;

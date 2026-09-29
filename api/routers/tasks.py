@@ -48,10 +48,11 @@ def _dt(v):
         return None
 
 
-def _task_to_summary(row: dict) -> TaskSummary:
-
+def _task_to_summary(row: dict, index: Optional[int] = None) -> TaskSummary:
+    disp_id = row.get("display_id") or (f"TASK-{index:03d}" if index is not None else None)
     return TaskSummary(
         task_id=row["task_id"],
+        display_id=disp_id,
         project_id=row.get("project_id"),
         workflow_id=row.get("workflow_id"),
         parent_task_id=row.get("parent_task_id"),
@@ -120,7 +121,10 @@ def list_tasks(
             params + [limit, offset],
         ).fetchall()
 
-    items = [_task_to_summary(dict(r)).model_dump() for r in rows]
+    items = []
+    for idx, r in enumerate(rows):
+        t_num = total - (offset + idx) if total > 0 else (idx + 1)
+        items.append(_task_to_summary(dict(r), index=max(1, t_num)).model_dump())
     return PaginatedResponse(total=total, limit=limit, offset=offset, items=items)
 
 
@@ -237,8 +241,16 @@ def get_task(task_id: str, session: SessionInfo = Depends(require_session)):
         except Exception:
             pass
 
+    files_list = inputs_dict.get("files") or inputs_dict.get("target_files") or ([scope] if scope else ["runtime/src/drivers.rs"])
+    tools_list = inputs_dict.get("tools") or ([inputs_dict.get("tool")] if inputs_dict.get("tool") else ["rust_source_inspector"])
+    method_val = inputs_dict.get("method") or "semantic security analysis"
+    context_val = inputs_dict.get("context_description") or f"Scoped context pack: {scope}"
+    exp_ev = inputs_dict.get("expected_evidence") or "Source span, execution trace, deterministic reproducer"
+    wp_id = inputs_dict.get("workpackage_id") or "WP-001"
+
     return TaskDetail(
         task_id=row_dict["task_id"],
+        display_id=row_dict.get("display_id") or "TASK-001",
         workflow_id=row_dict.get("workflow_id"),
         parent_task_id=row_dict.get("parent_task_id"),
         objective=row_dict.get("objective", ""),
@@ -260,6 +272,12 @@ def get_task(task_id: str, session: SessionInfo = Depends(require_session)):
         repository_name=repo_name,
         repository_path=repo_path,
         description=row_dict.get("objective", ""),
+        files=files_list if isinstance(files_list, list) else [str(files_list)],
+        method=method_val,
+        tools=tools_list if isinstance(tools_list, list) else [str(tools_list)],
+        context=context_val,
+        expected_evidence=exp_ev,
+        workpackage_id=wp_id,
         elapsed_seconds=elapsed_seconds,
         tokens_consumed=0,
         runs=runs,

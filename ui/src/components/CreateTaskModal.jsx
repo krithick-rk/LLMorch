@@ -1,55 +1,96 @@
 /**
- * CreateTaskModal.jsx — Clean Configuration UX with Grouped Advanced Controls
- * Section 3:
- * - BASIC section (Only essentials for normal analyst)
- * - ADVANCED section (Collapsed by default), grouped into:
- *   EXECUTION, AGENT, METHOD, TOOLS, BUDGET, CONTEXT, SAFETY
- * - Proper form spacing, labels, helper text, validation and defaults.
- * - Claude is disabled by policy; AGY and Codex are allowed executors.
+ * CreateTaskModal.jsx — Viewport-Fixed Context-Aware Task Creation Modal
+ * Sections 23, 24, 25, 51, 55:
+ * - Viewport-fixed positioning (position: fixed; top: 0; left: 0; width: 100vw; height: 100vh)
+ * - Modal has its own scroll area; background page does NOT push, resize, or scroll
+ * - Context-aware prefilling from initialContext:
+ *   Task page -> parent task context
+ *   Finding page -> finding context
+ *   Gap -> gap objective
+ *   Repository / Project -> project scope
+ *   Agent -> prefill agent
+ *   Tool -> prefill tool
+ *   File -> prefill file
+ * - Normal UX view:
+ *   What do you want to do? [large input]
+ *   Scope: [Current Project]
+ *   Target: [Auto]
+ *   Analysis Mode: [Quick / Standard / Deep]
+ *   Method: [Auto]
+ *   Agent: [Auto]
+ *   Tools: [Auto]
+ *   Budget: [Auto]
+ *   [Create Task]
+ * - Advanced controls remain collapsible
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import api from '../api'
 
-export default function CreateTaskModal({ isOpen, onClose, onTaskCreated }) {
-  // BASIC inputs
+export default function CreateTaskModal({ isOpen, onClose, onTaskCreated, initialContext = null, activeProject = null }) {
+  // Normal / Basic Inputs
   const [goal, setGoal] = useState('')
-  const [target, setTarget] = useState('rtl/spi_host')
+  const [scope, setScope] = useState('Current Project')
+  const [target, setTarget] = useState('runtime/src/drivers.rs')
+  const [analysisMode, setAnalysisMode] = useState('Standard') // Quick | Standard | Deep
+  const [method, setMethod] = useState('Auto')
+  const [agent, setAgent] = useState('Auto')
+  const [tools, setTools] = useState('Auto')
+  const [budget, setBudget] = useState('Auto')
   const [riskLevel, setRiskLevel] = useState('MEDIUM')
 
-  // ADVANCED inputs (collapsed by default)
+  // Advanced collapsible section
   const [showAdvanced, setShowAdvanced] = useState(false)
-
-  // ADVANCED: EXECUTION
-  const [executionPolicy, setExecutionPolicy] = useState('DETERMINISTIC_SANDBOX')
-  const [retryLimit, setRetryLimit] = useState(3)
-  const [timeBudget, setTimeBudget] = useState(600) // seconds
-
-  // ADVANCED: AGENT
-  const [agent, setAgent] = useState('AGY')
-  const [role, setRole] = useState('VERIFICATION_ENGINEER')
-  const [model, setModel] = useState('codex-davinci-002')
-
-  // ADVANCED: METHOD
-  const [method, setMethod] = useState('formal')
-
-  // ADVANCED: TOOLS
-  const [selectedTools, setSelectedTools] = useState(['Yosys', 'Boolector'])
-
-  // ADVANCED: BUDGET
+  const [selectedAgent, setSelectedAgent] = useState('agent-agy-01')
+  const [selectedTools, setSelectedTools] = useState(['rust_source_inspector', 'cargo_audit'])
+  const [timeBudget, setTimeBudget] = useState(600)
   const [tokenBudget, setTokenBudget] = useState(60000)
-
-  // ADVANCED: CONTEXT
-  const [contextScope, setContextScope] = useState('ONE_HOP_EXPANSION')
-  const [includeVendor, setIncludeVendor] = useState(false)
-  const [includeGenerated, setIncludeGenerated] = useState(false)
-
-  // ADVANCED: SAFETY
+  const [retryLimit, setRetryLimit] = useState(3)
   const [requireHumanReview, setRequireHumanReview] = useState(false)
-  const [failSafeGate, setFailSafeGate] = useState(true)
 
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+
+  // Context-aware auto-population (Section 24)
+  useEffect(() => {
+    if (!isOpen) return
+
+    const projectName = activeProject?.name || activeProject?.target_directory || 'Current Project'
+    setScope(projectName)
+
+    if (initialContext) {
+      if (initialContext.goal || initialContext.objective) {
+        setGoal(initialContext.goal || initialContext.objective)
+      } else if (initialContext.gap_title) {
+        setGoal(`Verify and close gap: ${initialContext.gap_title}`)
+      } else if (initialContext.finding_title) {
+        setGoal(`Investigate and verify finding: ${initialContext.finding_title}`)
+      }
+
+      if (initialContext.target || initialContext.file || initialContext.target_component) {
+        setTarget(initialContext.target || initialContext.file || initialContext.target_component)
+      }
+
+      if (initialContext.agent) {
+        setAgent(initialContext.agent)
+        setSelectedAgent(initialContext.agent)
+      }
+
+      if (initialContext.tool) {
+        setTools(initialContext.tool)
+        setSelectedTools([initialContext.tool])
+      }
+
+      if (initialContext.method) {
+        setMethod(initialContext.method)
+      }
+    } else {
+      if (!goal) {
+        setGoal('')
+      }
+      setTarget(activeProject?.metadata?.intake?.sample_files?.[0] || 'runtime/src/drivers.rs')
+    }
+  }, [isOpen, initialContext, activeProject])
 
   if (!isOpen) return null
 
@@ -73,29 +114,27 @@ export default function CreateTaskModal({ isOpen, onClose, onTaskCreated }) {
       setLoading(true)
       setErrorMsg('')
 
+      const effectiveAgent = agent === 'Auto' ? selectedAgent : agent
+      const effectiveMethod = method === 'Auto' ? 'Firmware Security Analysis' : method
+      const effectiveTools = tools === 'Auto' ? selectedTools : [tools]
+
       const payload = {
         objective: goal.trim(),
-        target_component: target || 'core',
+        target_component: target || 'runtime/',
         risk_level: riskLevel,
-        assigned_agent_id: agent,
+        assigned_agent_id: effectiveAgent,
         inputs: {
           goal: goal.trim(),
-          scope: target || 'rtl/',
-          method: method,
-          tool: selectedTools[0] || 'Yosys',
-          tools: selectedTools,
-          agent: agent,
-          role: role,
-          model: model,
-          token_budget: Number(tokenBudget),
+          scope: target || 'runtime/',
+          method: effectiveMethod,
+          tool: effectiveTools[0] || 'rust_source_inspector',
+          tools: effectiveTools,
+          agent: effectiveAgent,
+          analysis_mode: analysisMode,
+          token_budget: budget === 'Auto' ? 60000 : Number(tokenBudget),
           time_budget: Number(timeBudget),
           retry_limit: Number(retryLimit),
-          execution_policy: executionPolicy,
-          context_scope: contextScope,
-          include_vendor: includeVendor,
-          include_generated: includeGenerated,
           require_human_review: requireHumanReview,
-          fail_safe_gate: failSafeGate,
         }
       }
 
@@ -110,308 +149,266 @@ export default function CreateTaskModal({ isOpen, onClose, onTaskCreated }) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose} style={{ zIndex: 1000, overflowY: 'auto', padding: '30px 0' }}>
+    <div
+      id="create-task-modal-backdrop"
+      className="modal-backdrop modal-overlay"
+      onClick={onClose}
+      style={{
+        position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+        zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0, 0, 0, 0.65)', backdropFilter: 'blur(3px)'
+      }}
+    >
       <div
         className="modal-content"
         onClick={e => e.stopPropagation()}
         style={{
-          width: '740px',
-          maxWidth: '92vw',
-          maxHeight: '90vh',
-          display: 'flex',
-          flexDirection: 'column',
-          margin: 'auto',
-          background: 'var(--bg-surface)',
-          borderRadius: 4,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-          border: '1px solid var(--border)'
+          width: '680px', maxWidth: '92vw', maxHeight: '85vh',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          background: 'var(--bg-base)', border: '1px solid var(--border-focus)',
+          borderRadius: 6, boxShadow: '0 12px 48px rgba(0, 0, 0, 0.5)'
         }}
       >
-        {/* Modal Header */}
-        <div className="modal-header" style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {/* Fixed Modal Header (Section 23) */}
+        <div className="modal-header" style={{
+          padding: '14px 20px', borderBottom: '1px solid var(--border)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          background: 'var(--bg-surface)'
+        }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-bright)' }}>
-              Dispatch Verification Task
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              Define verification objectives and configure runtime parameters
+            <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-bright)' }}>
+              Create Verification Task
+            </span>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+              Scope-bound verifiable task dispatched to Central Orchestrator
             </div>
           </div>
           <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ fontSize: 16 }}>✕</button>
         </div>
 
-        {/* Modal Scrollable Body */}
-        <div style={{ padding: '20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {/* Internally Scrollable Modal Body (Section 23 & 25) */}
+        <div className="modal-body" style={{
+          flex: 1, overflowY: 'auto', padding: '18px 20px',
+          display: 'flex', flexDirection: 'column', gap: 14
+        }}>
           {errorMsg && (
-            <div style={{ padding: '8px 12px', background: 'var(--red-bg)', border: '1px solid var(--red-border)', color: 'var(--red)', fontSize: 12, borderRadius: 3 }}>
-              ⚠ {errorMsg}
+            <div style={{
+              background: '#fef2f2', border: '1px solid #f87171', color: '#991b1b',
+              padding: '8px 12px', borderRadius: 4, fontSize: 12
+            }}>
+              {errorMsg}
             </div>
           )}
 
-          {/* ─── BASIC SECTION ─────────────────────────────────────────────── */}
-          <div style={{ background: '#ffffff', border: '1px solid var(--border)', borderRadius: 4, padding: '16px' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--blue)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
-              BASIC CONFIGURATION
-            </div>
+          {/* Question: What do you want to do? (Section 25) */}
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-bright)' }}>
+              What do you want to do? <span style={{ color: 'var(--blue)' }}>*</span>
+            </label>
+            <textarea
+              id="input-task-goal"
+              className="form-control"
+              rows={3}
+              placeholder="e.g. Audit DPE command deserialization logic in runtime/src/invoke_dpe.rs and verify authorization gate prevents unauthenticated execution"
+              value={goal}
+              onChange={e => setGoal(e.target.value)}
+              style={{ fontSize: 13, resize: 'vertical' }}
+            />
+          </div>
 
-            {/* Verification Objective */}
-            <div className="form-group" style={{ marginBottom: 14 }}>
-              <label className="form-label" style={{ fontSize: 13 }}>
-                Verification Objective / Goal *
-              </label>
-              <textarea
+          {/* Normal View Configuration Grid (Section 25) */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600 }}>Scope</label>
+              <input
+                type="text"
                 className="form-control"
-                placeholder="e.g. Verify clock domain crossing between sys_clk and aon_clk in reset_controller..."
-                value={goal}
-                onChange={e => setGoal(e.target.value)}
-                style={{ minHeight: 64, fontSize: 13 }}
-                autoFocus
+                value={scope}
+                disabled
+                style={{ fontSize: 12, background: 'var(--bg-subtle)' }}
               />
-              <div className="form-hint" style={{ fontSize: 11 }}>
-                Provide high-level property, vulnerability hypothesis, or verification check.
-              </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
-              {/* Target Component */}
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: 13 }}>
-                  Target Subsystem / Files
-                </label>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="rtl/spi_host or hw/ip/..."
-                  value={target}
-                  onChange={e => setTarget(e.target.value)}
-                  style={{ fontSize: 13 }}
-                />
-              </div>
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600 }}>Target File / Component</label>
+              <input
+                id="input-task-target"
+                type="text"
+                className="form-control"
+                value={target}
+                onChange={e => setTarget(e.target.value)}
+                placeholder="runtime/src/drivers.rs"
+                style={{ fontSize: 12 }}
+              />
+            </div>
 
-              {/* Priority / Risk Level */}
-              <div className="form-group">
-                <label className="form-label" style={{ fontSize: 13 }}>
-                  Risk / Priority Level
-                </label>
-                <select
-                  className="form-control"
-                  value={riskLevel}
-                  onChange={e => setRiskLevel(e.target.value)}
-                  style={{ fontSize: 13 }}
-                >
-                  <option value="LOW">LOW</option>
-                  <option value="MEDIUM">MEDIUM</option>
-                  <option value="HIGH">HIGH</option>
-                  <option value="CRITICAL">CRITICAL (Gated)</option>
-                </select>
-              </div>
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600 }}>Analysis Mode</label>
+              <select
+                className="form-control"
+                value={analysisMode}
+                onChange={e => setAnalysisMode(e.target.value)}
+                style={{ fontSize: 12 }}
+              >
+                <option value="Quick">Quick (Deterministic Pre-check & Static Inspection)</option>
+                <option value="Standard">Standard (Full AST, Capability Audit & Evidence Dossier)</option>
+                <option value="Deep">Deep (Exhaustive Formal Solver & Protocol Invariant)</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600 }}>Method</label>
+              <select
+                className="form-control"
+                value={method}
+                onChange={e => setMethod(e.target.value)}
+                style={{ fontSize: 12 }}
+              >
+                <option value="Auto">Auto (Orchestrator Selected)</option>
+                <option value="Firmware Security Analysis">Firmware Security Analysis</option>
+                <option value="Formal Register Verification">Formal Register Verification</option>
+                <option value="Clock Domain Crossing Check">Clock Domain Crossing Check</option>
+                <option value="Memory Safety Audit">Memory Safety Audit</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600 }}>Agent</label>
+              <select
+                className="form-control"
+                value={agent}
+                onChange={e => setAgent(e.target.value)}
+                style={{ fontSize: 12 }}
+              >
+                <option value="Auto">Auto (AGY / Codex by Capability)</option>
+                <option value="agent-agy-01">Antigravity (AGY)</option>
+                <option value="agent-codex-01">Codex</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 600 }}>Tools</label>
+              <select
+                className="form-control"
+                value={tools}
+                onChange={e => setTools(e.target.value)}
+                style={{ fontSize: 12 }}
+              >
+                <option value="Auto">Auto (Language & Scope Aware)</option>
+                <option value="rust_source_inspector">rust_source_inspector</option>
+                <option value="cargo_audit">cargo_audit</option>
+                <option value="yosys">Yosys Formal / Synthesis</option>
+                <option value="verilator">Verilator Simulation</option>
+              </select>
             </div>
           </div>
 
-          {/* ─── ADVANCED TOGGLE ───────────────────────────────────────────── */}
-          <div>
+          {/* Advanced Controls Toggle */}
+          <div style={{ marginTop: 4 }}>
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className="btn btn-ghost btn-sm"
               onClick={() => setShowAdvanced(!showAdvanced)}
-              style={{
-                width: '100%',
-                display: 'flex',
-                justifyContent: 'space-between',
-                padding: '8px 14px',
-                fontWeight: 600,
-                fontSize: 12.5,
-                color: 'var(--text-primary)'
-              }}
+              style={{ fontSize: 11, color: 'var(--blue)', padding: '2px 0' }}
             >
-              <span>⚙ ADVANCED CONTROLS (Execution, Agent, Method, Tools, Budget, Context, Safety)</span>
-              <span>{showAdvanced ? '▲ Collapse' : '▼ Expand (7 groups)'}</span>
+              {showAdvanced ? '▼ Hide Advanced Configuration' : '▶ Show Advanced Configuration (Budgets, Tools, Review Gate)'}
             </button>
           </div>
 
-          {/* ─── ADVANCED COLLAPSIBLE CONTAINER ─────────────────────────────── */}
+          {/* Advanced Collapsible Pane */}
           {showAdvanced && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-              {/* 1. EXECUTION */}
-              <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 4, padding: '14px' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10, letterSpacing: '0.04em' }}>
-                  1. EXECUTION
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
-                  <div className="form-group">
-                    <label className="form-label" style={{ fontSize: 11 }}>Execution Policy</label>
-                    <select className="form-control" value={executionPolicy} onChange={e => setExecutionPolicy(e.target.value)} style={{ fontSize: 12 }}>
-                      <option value="DETERMINISTIC_SANDBOX">DETERMINISTIC_SANDBOX (Isolated)</option>
-                      <option value="HOST_EXECUTION">HOST_EXECUTION (Local CLI)</option>
-                      <option value="DRY_RUN_PLAN_ONLY">DRY_RUN_PLAN_ONLY</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label" style={{ fontSize: 11 }}>Timeout (Sec)</label>
-                    <input type="number" className="form-control" value={timeBudget} onChange={e => setTimeBudget(e.target.value)} style={{ fontSize: 12 }} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label" style={{ fontSize: 11 }}>Max Retries</label>
-                    <input type="number" className="form-control" value={retryLimit} onChange={e => setRetryLimit(e.target.value)} style={{ fontSize: 12 }} />
-                  </div>
-                </div>
+            <div style={{
+              background: 'var(--bg-subtle)', border: '1px solid var(--border)',
+              borderRadius: 4, padding: 14, display: 'flex', flexDirection: 'column', gap: 12
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-bright)' }}>
+                Advanced Execution & Safety Bounds
               </div>
 
-              {/* 2. AGENT */}
-              <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 4, padding: '14px' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10, letterSpacing: '0.04em' }}>
-                  2. AGENT & ROLE
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                  <div className="form-group">
-                    <label className="form-label" style={{ fontSize: 11 }}>Assigned Agent</label>
-                    <select className="form-control" value={agent} onChange={e => setAgent(e.target.value)} style={{ fontSize: 12 }}>
-                      <option value="AGY">AGY (Autonomous EDA Agent)</option>
-                      <option value="Codex">Codex (Deterministic Code Agent)</option>
-                      <option value="Claude" disabled>Claude (Disabled by Policy)</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label" style={{ fontSize: 11 }}>Agent Role</label>
-                    <select className="form-control" value={role} onChange={e => setRole(e.target.value)} style={{ fontSize: 12 }}>
-                      <option value="VERIFICATION_ENGINEER">Verification Engineer</option>
-                      <option value="FORMAL_SPECIALIST">Formal Specialist</option>
-                      <option value="SECURITY_RESEARCHER">Security Researcher</option>
-                      <option value="ORCHESTRATOR">Orchestrator</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label" style={{ fontSize: 11 }}>Model Engine</label>
-                    <select className="form-control" value={model} onChange={e => setModel(e.target.value)} style={{ fontSize: 12 }}>
-                      <option value="codex-davinci-002">Codex Davinci 002 (Real)</option>
-                      <option value="gpt-4o">GPT-4o (Real)</option>
-                      <option value="gemini-1.5-pro">Gemini 1.5 Pro (Real)</option>
-                      <option value="deterministic-local">Deterministic Local</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* 3. METHOD & 4. TOOLS */}
-              <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 4, padding: '14px' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10, letterSpacing: '0.04em' }}>
-                  3. METHOD & 4. DETERMINISTIC TOOLS
-                </div>
-                <div style={{ marginBottom: 12 }}>
-                  <label className="form-label" style={{ fontSize: 11 }}>Verification Method</label>
-                  <select className="form-control" value={method} onChange={e => setMethod(e.target.value)} style={{ fontSize: 12 }}>
-                    <option value="formal">Formal SMT Property Verification</option>
-                    <option value="dynamic_simulation">Dynamic Simulation & Assertions</option>
-                    <option value="static_ast">Static AST & Lint Analysis</option>
-                    <option value="fuzzing">Coverage-Guided Fuzzing</option>
-                    <option value="security_boundary">Security Boundary Lock Verification</option>
-                  </select>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, fontSize: 11 }}>
+                <div>
+                  <label className="form-label">Time Budget (sec)</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={timeBudget}
+                    onChange={e => setTimeBudget(Number(e.target.value))}
+                    style={{ fontSize: 12 }}
+                  />
                 </div>
                 <div>
-                  <label className="form-label" style={{ fontSize: 11, marginBottom: 6 }}>Allowed Deterministic Tool Plane</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {['Verilator', 'Yosys', 'Slang', 'Boolector', 'Z3', 'Cocotb', 'Surfer', 'Sby'].map(t => {
-                      const isSel = selectedTools.includes(t)
-                      return (
-                        <button
-                          key={t}
-                          type="button"
-                          className={`btn ${isSel ? 'btn-primary' : 'btn-secondary'} btn-sm`}
-                          onClick={() => handleToolToggle(t)}
-                          style={{ fontSize: 11, padding: '3px 8px' }}
-                        >
-                          {isSel ? '✓ ' : '+ '}{t}
-                        </button>
-                      )
-                    })}
-                  </div>
+                  <label className="form-label">Token Cap</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={tokenBudget}
+                    onChange={e => setTokenBudget(Number(e.target.value))}
+                    style={{ fontSize: 12 }}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Max Retries</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={retryLimit}
+                    onChange={e => setRetryLimit(Number(e.target.value))}
+                    style={{ fontSize: 12 }}
+                  />
                 </div>
               </div>
 
-              {/* 5. BUDGET */}
-              <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 4, padding: '14px' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10, letterSpacing: '0.04em' }}>
-                  5. TOKEN BUDGET & ACCOUNTING
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, alignItems: 'center' }}>
-                  <div className="form-group">
-                    <label className="form-label" style={{ fontSize: 11 }}>Token Cap</label>
-                    <input
-                      type="number"
-                      className="form-control"
-                      value={tokenBudget}
-                      onChange={e => setTokenBudget(e.target.value)}
-                      style={{ fontSize: 12 }}
-                    />
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                    Hard budget gate. When reached, task will pause and trigger a watchdog alert.
-                  </div>
+              <div>
+                <label className="form-label" style={{ fontSize: 11, marginBottom: 4 }}>
+                  Allowed Deterministic Tools
+                </label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {['rust_source_inspector', 'cargo_audit', 'yosys', 'verilator', 'sby'].map(t => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={`btn btn-sm ${selectedTools.includes(t) ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ fontSize: 11, padding: '2px 8px' }}
+                      onClick={() => handleToolToggle(t)}
+                    >
+                      {selectedTools.includes(t) ? `✓ ${t}` : t}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* 6. CONTEXT SCOPE */}
-              <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 4, padding: '14px' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10, letterSpacing: '0.04em' }}>
-                  6. CONTEXT SCOPE & FABRIC
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 8 }}>
-                  <div className="form-group">
-                    <label className="form-label" style={{ fontSize: 11 }}>Scope Depth</label>
-                    <select className="form-control" value={contextScope} onChange={e => setContextScope(e.target.value)} style={{ fontSize: 12 }}>
-                      <option value="LOCAL_FILE_ONLY">Local File Only</option>
-                      <option value="ONE_HOP_EXPANSION">1-Hop Dependency Expansion (Recommended)</option>
-                      <option value="FULL_SUBSYSTEM">Full Subsystem Hierarchy</option>
-                    </select>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 18 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={includeVendor} onChange={e => setIncludeVendor(e.target.checked)} />
-                      Include third-party vendor code
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={includeGenerated} onChange={e => setIncludeGenerated(e.target.checked)} />
-                      Include auto-generated register headers
-                    </label>
-                  </div>
-                </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+                <input
+                  type="checkbox"
+                  id="chk-human-review"
+                  checked={requireHumanReview}
+                  onChange={e => setRequireHumanReview(e.target.checked)}
+                />
+                <label htmlFor="chk-human-review" style={{ cursor: 'pointer' }}>
+                  Require Lead Analyst sign-off before committing result to verification closure
+                </label>
               </div>
-
-              {/* 7. SAFETY & HUMAN-IN-THE-LOOP */}
-              <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 4, padding: '14px' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 10, letterSpacing: '0.04em' }}>
-                  7. SAFETY & GATES
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={requireHumanReview} onChange={e => setRequireHumanReview(e.target.checked)} />
-                    Require Lead Analyst sign-off before committing result to verification closure
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={failSafeGate} onChange={e => setFailSafeGate(e.target.checked)} />
-                    Enforce fail-safe halt if AST compilation errors occur
-                  </label>
-                </div>
-              </div>
-
             </div>
           )}
         </div>
 
-        {/* Modal Footer */}
-        <div className="modal-footer" style={{ padding: '14px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button className="btn btn-secondary btn-md" onClick={onClose} disabled={loading}>
+        {/* Fixed Modal Footer (Section 23) */}
+        <div className="modal-footer" style={{
+          padding: '12px 20px', borderTop: '1px solid var(--border)',
+          display: 'flex', justifyContent: 'flex-end', gap: 10,
+          background: 'var(--bg-surface)'
+        }}>
+          <button className="btn btn-secondary btn-sm" onClick={onClose} disabled={loading}>
             Cancel
           </button>
           <button
-            id="btn-dispatch-task"
-            className="btn btn-primary btn-md"
+            id="btn-submit-task"
+            className="btn btn-primary btn-sm"
             onClick={handleSubmit}
-            disabled={loading}
-            style={{ fontWeight: 600, minWidth: 130 }}
+            disabled={loading || !goal.trim()}
+            style={{ fontWeight: 700 }}
           >
-            {loading ? 'Dispatching...' : 'Dispatch Task'}
+            {loading ? 'Creating Task...' : '✓ Create Task'}
           </button>
         </div>
       </div>

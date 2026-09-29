@@ -50,12 +50,14 @@ def _j(v, default=None):
         return default or []
 
 
-def _row_to_summary(row: dict) -> FindingSummary:
+def _row_to_summary(row: dict, index: Optional[int] = None) -> FindingSummary:
     lineage = _j(row.get("lineage"))
     req_ctx = lineage.get("requires_parent_context", False) if isinstance(lineage, dict) else False
     ctx_exp = lineage.get("context_explanation") if isinstance(lineage, dict) else None
+    disp_id = row.get("display_id") or (f"VUL-{index:03d}" if index is not None else None)
     return FindingSummary(
         finding_id=row["finding_id"],
+        display_id=disp_id,
         task_id=row.get("task_id"),
         hypothesis=row.get("hypothesis"),
         state=row.get("state", "OPEN"),
@@ -129,7 +131,10 @@ def list_findings(
             params + [limit, offset],
         ).fetchall()
 
-    items = [_row_to_summary(dict(r)).model_dump() for r in rows]
+    items = []
+    for idx, r in enumerate(rows):
+        vul_num = total - (offset + idx) if total > 0 else (idx + 1)
+        items.append(_row_to_summary(dict(r), index=max(1, vul_num)).model_dump())
     return PaginatedResponse(total=total, limit=limit, offset=offset, items=items)
 
 
@@ -148,6 +153,7 @@ def get_finding(finding_id: str, session: SessionInfo = Depends(require_session)
     ctx_exp = lineage.get("context_explanation") if isinstance(lineage, dict) else None
     return FindingDetail(
         finding_id=r["finding_id"],
+        display_id=r.get("display_id") or "VUL-001",
         task_id=r.get("task_id"),
         hypothesis=r.get("hypothesis"),
         state=r.get("state", "OPEN"),

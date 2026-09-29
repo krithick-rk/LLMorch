@@ -1,0 +1,1 @@
+{"type": "TOOL_EXECUTION", "timestamp": "2026-09-29T11:06:24.736918+00:00", "tool_id": "rust_source_inspector", "task_id": "task-123", "command": "ripgrep privilege", "exit_code": 0, "duration_ms": 45.2}

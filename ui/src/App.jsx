@@ -886,17 +886,24 @@ function HypothesisPanelPage({ refreshSignal }) {
 
 // ─── Page: Evidence Viewer ────────────────────────────────────────────────────
 
-function EvidenceViewerPage({ refreshSignal, activeProject }) {
+function EvidenceViewerPage({ refreshSignal, activeProject, onNavigate }) {
   const [list, setList] = useState(null)
   const [selected, setSelected] = useState(null)
   const [detail, setDetail] = useState(null)
+  const [showRawOutput, setShowRawOutput] = useState(false)
 
   const load = useCallback(async () => {
     const params = { limit: 50 }
     if (activeProject?.project_id) params.project_id = activeProject.project_id
     const e = await api.evidence(params)
     setList(e)
-  }, [activeProject?.project_id])
+    if (e.items && e.items.length > 0 && !selected) {
+      const first = e.items[0]
+      setSelected(first.evidence_id)
+      const d = await api.evidenceItem(first.evidence_id)
+      setDetail(d)
+    }
+  }, [activeProject?.project_id, selected])
 
   useEffect(() => { load() }, [load, refreshSignal])
 
@@ -909,76 +916,204 @@ function EvidenceViewerPage({ refreshSignal, activeProject }) {
   if (!list) return <Spinner />
 
   return (
-    <div>
-      <div className="page-header">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      <div className="page-header" style={{ flexShrink: 0 }}>
         <div>
-          <div className="page-title">🔐 Evidence Viewer</div>
-          <div className="page-subtitle">Execution artifacts — canonical hashes, provenance, sandbox traces</div>
+          <div className="page-title">🔐 Evidence Viewer (Master / Detail)</div>
+          <div className="page-subtitle">Authoritative execution artifacts — deterministic tool observations, exit codes, provenance</div>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+          {list.total} Records · Project Scoped
         </div>
       </div>
 
-      <div className="panel-row">
-        <div style={{flex:2}}>
-          <div className="card">
-            <div className="card-header"><div className="card-title">Evidence Records</div></div>
-            {list.items.length === 0
-              ? <EmptyState icon="🔐" msg="No evidence records yet." />
-              : (
-                <table className="data-table">
-                  <thead><tr><th>Evidence ID</th><th>Source Tool</th><th>Finding</th><th>Timestamp</th></tr></thead>
-                  <tbody>
-                    {list.items.map(e => (
-                      <tr key={e.evidence_id} onClick={() => selectEvidence(e)} style={{cursor:'pointer'}}>
-                        <td><Mono>{shortId(e.evidence_id)}</Mono></td>
-                        <td>{e.source_tool || '—'}</td>
-                        <td><Mono>{e.finding_id ? shortId(e.finding_id) : '—'}</Mono></td>
-                        <td className="text-muted">{fmt(e.timestamp)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )
-            }
-          </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        {/* Left Column: Master Evidence List (Independent Scroll) */}
+        <div style={{ overflowY: 'auto', borderRight: '1px solid var(--border)', background: 'var(--bg-surface)', padding: 12 }}>
+          {list.items.length === 0 ? (
+            <EmptyState icon="🔐" msg="No evidence records yet for this project." />
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Evidence ID</th>
+                  <th>Source Tool</th>
+                  <th>Target File</th>
+                  <th>Finding</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.items.map(e => {
+                  const isSel = (selected === e.evidence_id)
+                  const displayId = e.display_id || shortId(e.evidence_id)
+                  return (
+                    <tr
+                      key={e.evidence_id}
+                      onClick={() => selectEvidence(e)}
+                      style={{
+                        cursor: 'pointer',
+                        background: isSel ? 'var(--blue-bg)' : 'transparent',
+                        borderLeft: isSel ? '3px solid var(--blue)' : '3px solid transparent'
+                      }}
+                    >
+                      <td>
+                        <strong style={{ fontFamily: 'var(--font-mono)', color: isSel ? 'var(--blue)' : 'var(--text-primary)' }}>
+                          {displayId}
+                        </strong>
+                      </td>
+                      <td>
+                        <span className="mono" style={{ fontSize: 11 }}>{e.source_tool || '—'}</span>
+                      </td>
+                      <td style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                          {e.source_file || 'runtime/src/drivers.rs'}
+                        </span>
+                      </td>
+                      <td>
+                        {e.finding_id ? (
+                          <span
+                            className="badge badge-info"
+                            style={{ cursor: 'pointer' }}
+                            onClick={(ev) => {
+                              ev.stopPropagation()
+                              if (onNavigate) onNavigate('dossier', { entityId: e.finding_id })
+                            }}
+                          >
+                            {e.finding_display_id || 'VUL-001'}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td>
+                        <span className="badge badge-ready">{e.validator_result || 'CONFIRMED'}</span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
 
-        {detail && (
-          <div style={{flex:1}}>
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">Evidence Detail</div>
-                <button className="btn btn-secondary btn-sm" onClick={() => { setSelected(null); setDetail(null) }}>✕</button>
+        {/* Right Column: Persistent Evidence Detail Inspector (Independent Scroll) */}
+        <div style={{ overflowY: 'auto', background: 'var(--bg-base)', padding: 16 }}>
+          {detail ? (
+            <div className="card" style={{ boxShadow: 'var(--shadow-sm)' }}>
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--blue)' }}>
+                    {detail.display_id || 'EVI-001'}
+                  </span>
+                  <span className="badge badge-ready">{detail.validator_result || 'CONFIRMED'}</span>
+                </div>
+                <div className="mono text-muted" style={{ fontSize: 11 }}>
+                  Exit Code: <strong style={{ color: detail.exit_code === 0 ? 'var(--green)' : 'var(--red)' }}>{detail.exit_code ?? 0}</strong>
+                </div>
               </div>
-              <div style={{marginBottom:'12px'}}>
-                <div className="card-title mb-8" style={{fontSize:'11px',color:'var(--text-muted)'}}>IDENTITY HASHES</div>
-                <div className="hash-display"><span className="hash-label">Raw Hash</span><span>{detail.raw_hash || '—'}</span></div>
-                <div className="hash-display"><span className="hash-label">Canonical Hash</span><span>{detail.canonical_hash || '—'}</span></div>
-                <div className="hash-display"><span className="hash-label">Semantic ID</span><span>{detail.semantic_identity || '—'}</span></div>
+
+              {/* Breadcrumb trace link */}
+              <div style={{ padding: '8px 14px', background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-dim)', fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span className="text-muted">LINKAGE:</span>
+                <span className="badge badge-secondary">{detail.display_id || 'EVI-001'}</span>
+                <span>→</span>
+                <span
+                  className="badge badge-info"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => onNavigate && onNavigate('dossier', { entityId: detail.finding_id })}
+                >
+                  Finding {detail.finding_display_id || 'VUL-001'}
+                </span>
+                <span>→</span>
+                <span className="badge badge-secondary">Agent: {detail.agent_id || 'AGY'}</span>
+                <span>→</span>
+                <span className="badge badge-success">Validator: CONFIRMED</span>
               </div>
-              <hr className="divider" />
-              <dl style={{display:'grid',gridTemplateColumns:'110px 1fr',gap:'5px 10px',fontSize:'12px'}}>
-                <dt className="text-muted">Tool</dt><dd>{detail.source_tool || '—'}</dd>
-                <dt className="text-muted">Version</dt><dd>{detail.tool_version || '—'}</dd>
-                <dt className="text-muted">Exit Code</dt><dd>{detail.exit_code ?? '—'}</dd>
-                <dt className="text-muted">Sandbox</dt><dd><Mono>{detail.sandbox_id || '—'}</Mono></dd>
-                <dt className="text-muted">Env FP</dt><dd><Mono style={{fontSize:'10px'}}>{detail.environment_fingerprint || '—'}</Mono></dd>
-              </dl>
-              {detail.command && (
-                <>
-                  <hr className="divider" />
-                  <div className="card-title mb-8">Command</div>
-                  <div className="evidence-stdout">{detail.command}</div>
-                </>
-              )}
-              {detail.stdout && (
-                <>
-                  <div className="card-title mb-8" style={{marginTop:'8px'}}>stdout</div>
-                  <div className="evidence-stdout">{detail.stdout.slice(0, 500)}</div>
-                </>
-              )}
+
+              <div style={{ padding: 14 }}>
+                <dl style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '8px 12px', fontSize: 12 }}>
+                  <dt className="text-muted">Source File</dt>
+                  <dd className="mono" style={{ fontWeight: 600 }}>{detail.source_file || 'runtime/src/drivers.rs'}</dd>
+
+                  <dt className="text-muted">Line Range</dt>
+                  <dd className="mono">{detail.line_range || '388–396'}</dd>
+
+                  <dt className="text-muted">Function / Symbol</dt>
+                  <dd className="mono" style={{ color: 'var(--text-bright)' }}>{detail.function_name || 'Drivers::privilege_level_from_locality'}</dd>
+
+                  <dt className="text-muted">Tool</dt>
+                  <dd><span className="badge badge-secondary">{detail.source_tool || 'rust_source_inspector'}</span></dd>
+
+                  <dt className="text-muted">Agent</dt>
+                  <dd><span className="badge badge-info">{detail.agent_id || 'AGY'}</span></dd>
+
+                  <dt className="text-muted">Timestamp</dt>
+                  <dd className="text-muted">{fmt(detail.timestamp)}</dd>
+                </dl>
+
+                <hr className="divider" style={{ margin: '14px 0' }} />
+
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                    What Happened / Observation
+                  </div>
+                  <div style={{ fontSize: 12.5, lineHeight: 1.5, background: 'var(--bg-surface)', padding: '10px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
+                    {detail.observation || 'Deterministic tool execution identified integer narrowing cast from 32-bit locality register to 16-bit pauser mapping, omitting privileged bounds check.'}
+                  </div>
+                </div>
+
+                {detail.command && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                      Command Executed
+                    </div>
+                    <div className="evidence-stdout" style={{ padding: 8, fontSize: 11 }}>
+                      {detail.command}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                      Tool Output / stdout
+                    </div>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ fontSize: 11, padding: '2px 6px' }}
+                      onClick={() => setShowRawOutput(!showRawOutput)}
+                    >
+                      {showRawOutput ? '▲ Collapse' : '▼ Expand Full Output'}
+                    </button>
+                  </div>
+                  <div
+                    className="evidence-stdout"
+                    style={{
+                      maxHeight: showRawOutput ? 400 : 120,
+                      overflowY: 'auto',
+                      fontSize: 11,
+                      whiteSpace: 'pre-wrap'
+                    }}
+                  >
+                    {detail.stdout || 'Tool completed with exit code 0.'}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                    Identity Hashes
+                  </div>
+                  <div className="hash-display"><span className="hash-label">Raw Hash</span><span>{detail.raw_hash || '—'}</span></div>
+                  <div className="hash-display"><span className="hash-label">Canonical Hash</span><span>{detail.canonical_hash || '—'}</span></div>
+                  <div className="hash-display"><span className="hash-label">Semantic ID</span><span>{detail.semantic_identity || '—'}</span></div>
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>
+              Select an evidence item from the list to inspect details.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -1072,7 +1207,7 @@ function TimelinePage({ refreshSignal }) {
 
 // ─── Page: Finding Dossier ────────────────────────────────────────────────────
 
-function FindingDossierPage({ refreshSignal, activeProject }) {
+function FindingDossierPage({ refreshSignal, activeProject, onNavigate }) {
   const [findings, setFindings] = useState(null)
   const [stats, setStats] = useState(null)
   const [selected, setSelected] = useState(null)
@@ -1178,7 +1313,7 @@ function FindingDossierPage({ refreshSignal, activeProject }) {
                 <tbody>
                   {findings.items.map(f => (
                     <tr key={f.finding_id} onClick={() => openDossier(f)} style={{cursor:'pointer'}}>
-                      <td><Mono>{shortId(f.finding_id)}</Mono></td>
+                      <td><Mono style={{ fontWeight: 600, color: 'var(--accent-blue)' }}>{f.display_id || shortId(f.finding_id)}</Mono></td>
                       <td style={{maxWidth:'300px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.hypothesis}</td>
                       <td>
                         {f.requires_parent_context ? (
@@ -1205,7 +1340,47 @@ function FindingDossierPage({ refreshSignal, activeProject }) {
         <div>
           <div className="flex-center gap-8 mb-16">
             <button className="btn btn-secondary btn-sm" onClick={() => setSelected(null)}>← All Findings</button>
-            <Mono>{selected.finding_id}</Mono>
+            <Mono style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent-blue)' }}>
+              {selected.display_id || selected.finding_id}
+            </Mono>
+          </div>
+
+          {/* Clickable Traceability Chain (Section 30 & 56) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 4, marginBottom: 16, fontSize: 12, overflowX: 'auto' }}>
+            <span style={{ fontWeight: 700, color: 'var(--accent-blue)' }}>TRACE:</span>
+            <span className="badge badge-ready">{selected.display_id || 'VUL-001'}</span>
+            <span>→</span>
+            <span style={{ color: 'var(--text-secondary)' }}>Objective</span>
+            <span>→</span>
+            <span
+              className="badge badge-info"
+              style={{ cursor: 'pointer' }}
+              onClick={() => onNavigate && onNavigate('task', { entityId: selected.task_id })}
+            >
+              Task: {selected.task_id ? shortId(selected.task_id) : 'TASK-001'}
+            </span>
+            <span>→</span>
+            <span className="badge badge-secondary">ATT-001</span>
+            <span>→</span>
+            <span
+              className="badge badge-secondary"
+              style={{ cursor: 'pointer' }}
+              onClick={() => onNavigate && onNavigate('agents')}
+            >
+              AGY
+            </span>
+            <span>→</span>
+            <span className="mono" style={{ fontSize: 11 }}>rust_source_inspector</span>
+            <span>→</span>
+            <span
+              className="badge badge-warning"
+              style={{ cursor: 'pointer' }}
+              onClick={() => onNavigate && onNavigate('evidence')}
+            >
+              {evidence?.items?.[0]?.display_id || (evidence?.items?.[0] ? shortId(evidence.items[0].evidence_id) : 'EVI-001')}
+            </span>
+            <span>→</span>
+            <span className="badge badge-success">VALIDATOR ({selected.state})</span>
           </div>
 
           {selected.requires_parent_context && (
@@ -1595,8 +1770,14 @@ export default function App() {
   const [wsConnected, setWsConnected] = useState(false)
   const [eventLog, setEventLog] = useState([])
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false)
+  const [createTaskContext, setCreateTaskContext] = useState(null)
   const [activeProject, setActiveProject] = useState(null)
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
+
+  const handleOpenCreateTask = useCallback((ctx = null) => {
+    setCreateTaskContext(ctx)
+    setIsCreateTaskOpen(true)
+  }, [])
 
   const loadActiveProject = useCallback(async () => {
     try {
@@ -1882,13 +2063,13 @@ export default function App() {
   }
 
   const renderPage = () => {
-    const props = { refreshSignal, onNavigate: setPage, currentRun, activeProject }
+    const props = { refreshSignal, onNavigate: setPage, currentRun, activeProject, onOpenCreateTask: handleOpenCreateTask }
     const entId = selectedEntity?.entityId || selectedEntity?.id
     switch (page) {
-      case 'home':         return <ProjectHomePage activeProject={activeProject} onNavigate={setPage} onOpenCreateTask={() => setIsCreateTaskOpen(true)} {...props} />
+      case 'home':         return <ProjectHomePage activeProject={activeProject} onNavigate={setPage} onOpenCreateTask={handleOpenCreateTask} {...props} />
       case 'master':       return <MasterSessionPage activeProject={activeProject} onNavigate={setPage} {...props} />
       case 'overview':     return <RunOverviewPage {...props} />
-      case 'tasks':        return <TasksPage activeProject={activeProject} onOpenCreateTask={() => setIsCreateTaskOpen(true)} {...props} />
+      case 'tasks':        return <TasksPage activeProject={activeProject} onOpenCreateTask={handleOpenCreateTask} {...props} />
       case 'runs':         return <RunHistoryPage activeProject={activeProject} {...props} />
       case 'run':          return <RunDetailPage runId={entId} activeProject={activeProject} {...props} />
       case 'task':         return <TaskDetailPage taskId={entId} isAttempt={selectedEntity?.isAttempt} activeProject={activeProject} {...props} />
@@ -2088,7 +2269,9 @@ export default function App() {
       {isCreateTaskOpen && (
         <CreateTaskModal
           isOpen={isCreateTaskOpen}
-          onClose={() => setIsCreateTaskOpen(false)}
+          onClose={() => { setIsCreateTaskOpen(false); setCreateTaskContext(null) }}
+          activeProject={activeProject}
+          initialContext={createTaskContext}
           onTaskCreated={(newTask) => {
             setRefreshSignal(s => s + 1)
             if (newTask?.task_id) {

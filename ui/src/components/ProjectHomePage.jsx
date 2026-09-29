@@ -1,10 +1,10 @@
 /**
- * ProjectHomePage.jsx — Professional Engineering Project Home
- * Sections 8, 9, 10, 11:
- * - Deterministic repository intake summary before autonomous analysis
- * - Waits for user direction: [ Analyze Repository ], [ Start Verification Planning ], [ Create Task ]
- * - Tailored handling for small/unrelated directories (hello.c, script.py)
- * - Natural User Instruction box with structured INTERPRETED ACTION confirmation
+ * ProjectHomePage.jsx — Lightweight Engineering Project Landing Page
+ * Section 2:
+ * - Project Home is a lightweight landing page
+ * - Shows: Project, Target directory, Status, Last run, Current plan status, High-level counts, Recent activity
+ * - Primary actions: [Open Verification Workspace], [Open Master Session], [Create Task], [View Results]
+ * - Detailed intake, manifests, scope, and planning workflow moved to Verification Workspace
  */
 
 import { useState, useEffect, useCallback } from 'react'
@@ -12,32 +12,42 @@ import api from '../api'
 import { StatusPill, Spinner, fmt, Mono } from './shared'
 
 export default function ProjectHomePage({ activeProject, onNavigate, onOpenCreateTask }) {
-  const [briefing, setBriefing] = useState(null)
   const [summary, setSummary] = useState(null)
+  const [lastRun, setLastRun] = useState(null)
+  const [closure, setClosure] = useState(null)
+  const [activity, setActivity] = useState([])
   const [loading, setLoading] = useState(true)
   const [instruction, setInstruction] = useState('')
   const [interpreting, setInterpreting] = useState(false)
   const [interpretedAction, setInterpretedAction] = useState(null)
   const [dispatchMsg, setDispatchMsg] = useState(null)
 
-  const loadBriefing = useCallback(async () => {
-    if (!activeProject?.project_id) return
+  const loadData = useCallback(async () => {
+    if (!activeProject?.project_id) {
+      setLoading(false)
+      return
+    }
     try {
       setLoading(true)
-      const [data, sum] = await Promise.all([
-        api.projectBriefing(activeProject.project_id).catch(() => null),
+      const [sum, runsRes, closeRes, eventsRes] = await Promise.all([
         api.projectSummary(activeProject.project_id).catch(() => null),
+        api.runs({ project_id: activeProject.project_id, limit: 5 }).catch(() => ({ runs: [] })),
+        api.getClosure(null, { project_id: activeProject.project_id }).catch(() => null),
+        api.events({ project_id: activeProject.project_id, limit: 12 }).catch(() => ({ events: [] }))
       ])
-      setBriefing(data)
       setSummary(sum)
+      const rList = runsRes.runs || []
+      setLastRun(rList.length > 0 ? rList[0] : null)
+      setClosure(closeRes)
+      setActivity(eventsRes.events || [])
     } finally {
       setLoading(false)
     }
   }, [activeProject?.project_id])
 
   useEffect(() => {
-    loadBriefing()
-  }, [loadBriefing])
+    loadData()
+  }, [loadData])
 
   const handleInterpret = async () => {
     if (!instruction.trim() || !activeProject?.project_id) return
@@ -60,7 +70,7 @@ export default function ProjectHomePage({ activeProject, onNavigate, onOpenCreat
         objective: interpretedAction.suggested_task.title || interpretedAction.goal,
         target_component: interpretedAction.target,
         risk_level: 'MEDIUM',
-        assigned_agent_id: interpretedAction.suggested_task.agent || 'AGY',
+        assigned_agent_id: interpretedAction.suggested_task.agent || 'agent-agy-01',
         inputs: {
           goal: interpretedAction.goal,
           method: interpretedAction.method,
@@ -70,48 +80,90 @@ export default function ProjectHomePage({ activeProject, onNavigate, onOpenCreat
         }
       }
       const res = await api.createTask(taskPayload)
-      setDispatchMsg(`Task dispatched successfully: ${res.task_id || 'new task'}. Switching to Task Detail...`)
+      setDispatchMsg(`Task created successfully: ${res.task_id || 'new task'}. Navigating to Master Session...`)
       setTimeout(() => {
-        if (res.task_id) {
-          onNavigate('task', { entityId: res.task_id })
-        } else {
-          onNavigate('tasks')
-        }
-      }, 900)
+        onNavigate('master')
+      }, 800)
     } catch (err) {
       alert(`Failed to dispatch action: ${err.message}`)
     }
   }
 
   if (loading) return <Spinner />
+  if (!activeProject) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: 40, textAlign: 'center' }}>
+        <h2 style={{ fontSize: 20, color: 'var(--text-bright)', marginBottom: 12 }}>No Active Project Selected</h2>
+        <p style={{ color: 'var(--text-muted)', marginBottom: 20, maxWidth: 500 }}>
+          Create a new project or select an existing project from the top switcher to begin verification.
+        </p>
+      </div>
+    )
+  }
 
-  const isSmall = briefing?.is_small_or_generic || false
-  const intake = briefing || activeProject?.metadata?.intake || {}
+  const planVersion = summary?.verification_plans > 0 ? `v${summary.verification_plans}` : 'v1'
+  const lastRunDisplay = lastRun?.run_id ? (lastRun.run_id.startsWith('run-') ? `RUN-${lastRun.run_id.slice(4, 7).toUpperCase()}` : lastRun.run_id) : 'RUN-001'
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: '100%', padding: '24px 28px', background: 'var(--bg-base)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px 28px', background: 'var(--bg-base)' }}>
       {/* ── Page Header ──────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-bright)' }}>
-              Project Home: {activeProject?.name || 'Untitled Project'}
-            </h1>
+            <span style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', fontWeight: 600 }}>
+              PROJECT WORKSPACE
+            </span>
             <span className={`badge badge-${(activeProject?.status || 'READY').toLowerCase()}`} style={{ fontSize: 11 }}>
               {activeProject?.status || 'READY'}
             </span>
           </div>
-          <div className="mono text-muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Directory: <strong>{activeProject?.target_directory}</strong> · Revision: {intake.revision || 'HEAD'}
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text-bright)', margin: '4px 0 6px 0' }}>
+            {activeProject?.name || 'Untitled Project'}
+          </h1>
+          <div className="mono text-muted" style={{ fontSize: 13 }}>
+            Target: <strong>{activeProject?.target_directory}</strong>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-secondary btn-sm" onClick={loadBriefing}>
-            ↺ Refresh Intake
+        {/* ── Primary Action Buttons (Requirement 2) ─────────────────────────── */}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <button
+            id="btn-open-verification-ws"
+            className="btn btn-primary"
+            style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
+            onClick={() => onNavigate('verification-plan')}
+          >
+            📋 Open Verification Workspace
           </button>
-          <button className="btn btn-primary btn-sm" onClick={() => onNavigate('master')}>
-            ▶ Open Master Session
+          <button
+            id="btn-open-master-session"
+            className="btn btn-secondary"
+            style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
+            onClick={() => onNavigate('master')}
+          >
+            ⬡ Open Master Session
+          </button>
+          <button
+            id="btn-create-task-home"
+            className="btn btn-secondary"
+            style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
+            onClick={() => {
+              if (onOpenCreateTask) {
+                onOpenCreateTask({ project_id: activeProject.project_id })
+              } else {
+                onNavigate('tasks')
+              }
+            }}
+          >
+            ⚡ Create Task
+          </button>
+          <button
+            id="btn-view-results"
+            className="btn btn-ghost"
+            style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
+            onClick={() => onNavigate('evidence')}
+          >
+            ◈ View Results
           </button>
         </div>
       </div>
@@ -122,406 +174,163 @@ export default function ProjectHomePage({ activeProject, onNavigate, onOpenCreat
         </div>
       )}
 
-      {/* ── This Project Local Metrics Strip (Requirement 20 & 35) ───────────── */}
-      <div className="panel" style={{ marginBottom: 20, boxShadow: 'var(--shadow-sm)' }}>
-        <div className="panel-header" style={{ padding: '10px 18px', background: 'var(--bg-subtle)' }}>
+      {/* ── High-Level Metric Tiles (Requirement 2) ───────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, marginBottom: 20 }}>
+        <div className="stat-tile blue">
+          <div className="stat-label">Target Status</div>
+          <div className="stat-value" style={{ fontSize: 20, color: 'var(--blue)' }}>
+            {activeProject?.status || 'READY'}
+          </div>
+          <div className="stat-sub">Isolated Workspace</div>
+        </div>
+
+        <div className="stat-tile">
+          <div className="stat-label">Last Run</div>
+          <div className="stat-value mono" style={{ fontSize: 20, color: 'var(--text-bright)' }}>
+            {lastRunDisplay}
+          </div>
+          <div className="stat-sub">{lastRun?.status || 'Completed'}</div>
+        </div>
+
+        <div className="stat-tile green">
+          <div className="stat-label">Plan Status</div>
+          <div className="stat-value mono" style={{ fontSize: 20, color: 'var(--green)' }}>
+            {planVersion}
+          </div>
+          <div className="stat-sub">Verified Architecture</div>
+        </div>
+
+        <div className="stat-tile">
+          <div className="stat-label">Tasks</div>
+          <div className="stat-value mono" style={{ fontSize: 22, color: summary?.tasks > 0 ? 'var(--blue)' : 'var(--text-muted)' }}>
+            {summary ? summary.tasks : 0}
+          </div>
+          <div className="stat-sub">Executable Units</div>
+        </div>
+
+        <div className="stat-tile red">
+          <div className="stat-label">Findings</div>
+          <div className="stat-value mono" style={{ fontSize: 22, color: summary?.findings > 0 ? 'var(--red)' : 'var(--text-muted)' }}>
+            {summary ? summary.findings : 0}
+          </div>
+          <div className="stat-sub">Traceable Vulnerabilities</div>
+        </div>
+
+        <div className="stat-tile amber">
+          <div className="stat-label">Evidence</div>
+          <div className="stat-value mono" style={{ fontSize: 22, color: summary?.evidence > 0 ? 'var(--amber)' : 'var(--text-muted)' }}>
+            {summary ? summary.evidence : 0}
+          </div>
+          <div className="stat-sub">Deterministic Artifacts</div>
+        </div>
+      </div>
+
+      {/* ── Natural Direction & Intent Console ────────────────────────────────── */}
+      <div className="panel" style={{ marginBottom: 20 }}>
+        <div className="panel-header" style={{ padding: '12px 18px', background: 'var(--bg-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-bright)' }}>
-              THIS PROJECT LOCAL DATA
+              NATURAL USER INTENT & DIRECTION
             </span>
-            <span className="badge badge-ready" style={{ fontSize: 10 }}>
-              STRICT ISOLATION
-            </span>
+            <span className="badge badge-ready" style={{ fontSize: 10 }}>STRUCTURED DISPATCH</span>
           </div>
-          <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-            Project ID: {activeProject?.project_id}
-          </span>
-        </div>
-        <div className="panel-body" style={{ padding: '14px 18px', display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 12 }}>
-          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Tasks</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: summary?.tasks > 0 ? 'var(--blue)' : 'var(--text-muted)', marginTop: 2 }}>
-              {summary ? summary.tasks : 0}
-            </div>
-          </div>
-          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Runs</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: summary?.runs > 0 ? 'var(--blue)' : 'var(--text-muted)', marginTop: 2 }}>
-              {summary ? summary.runs : 0}
-            </div>
-          </div>
-          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Decisions</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: summary?.decisions > 0 ? 'var(--amber)' : 'var(--text-muted)', marginTop: 2 }}>
-              {summary ? summary.decisions : 0}
-            </div>
-          </div>
-          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Findings</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: summary?.findings > 0 ? 'var(--red)' : 'var(--text-muted)', marginTop: 2 }}>
-              {summary ? summary.findings : 0}
-            </div>
-          </div>
-          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Evidence</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: summary?.evidence > 0 ? 'var(--blue)' : 'var(--text-muted)', marginTop: 2 }}>
-              {summary ? summary.evidence : 0}
-            </div>
-          </div>
-          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Gaps</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: summary?.gaps > 0 ? 'var(--amber)' : 'var(--text-muted)', marginTop: 2 }}>
-              {summary ? summary.gaps : 0}
-            </div>
-          </div>
-          <div style={{ background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Plan</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: summary?.verification_plans > 0 ? 'var(--green)' : 'var(--text-muted)', marginTop: 4 }}>
-              {summary?.verification_plans > 0 ? `v${summary.verification_plans}` : 'Not created'}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Repository Intake & Classification Strip ─────────────────────────── */}
-      <div className="panel" style={{ marginBottom: 20, boxShadow: 'var(--shadow-sm)' }}>
-        <div className="panel-header" style={{ padding: '12px 18px', background: 'var(--bg-surface)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
-              REPOSITORY INTAKE & INVENTORY
-            </span>
-            <span className="badge badge-ready" style={{ fontSize: 10 }}>
-              DETERMINISTIC SCAN COMPLETE
-            </span>
-          </div>
-          <span className="mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            Classification: <strong style={{ color: 'var(--blue)' }}>{intake.classification || 'Generic Repository'}</strong>
-          </span>
-        </div>
-
-        <div className="panel-body" style={{ padding: '18px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, borderBottom: '1px solid var(--border-dim)' }}>
-          <div style={{ background: 'var(--bg-subtle)', padding: '10px 14px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Total Files</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-bright)', marginTop: 2 }}>
-              {intake.files_summary?.total_analyzable || intake.total_files || 0}
-            </div>
-          </div>
-
-          <div style={{ background: 'var(--bg-subtle)', padding: '10px 14px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>RTL / Hardware</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: intake.files_summary?.rtl_files > 0 ? 'var(--blue)' : 'var(--text-secondary)', marginTop: 2 }}>
-              {intake.files_summary?.rtl_files ?? (intake.rtl_count || 0)} files
-            </div>
-          </div>
-
-          <div style={{ background: 'var(--bg-subtle)', padding: '10px 14px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>C / C++ Software</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-bright)', marginTop: 2 }}>
-              {intake.files_summary?.c_files ?? (intake.c_count || 0)} files
-            </div>
-          </div>
-
-          <div style={{ background: 'var(--bg-subtle)', padding: '10px 14px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Python / Scripts</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-bright)', marginTop: 2 }}>
-              {intake.files_summary?.py_files ?? (intake.py_count || 0)} files
-            </div>
-          </div>
-
-          <div style={{ background: 'var(--bg-subtle)', padding: '10px 14px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Build System</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginTop: 4 }}>
-              {intake.build_system || 'Not detected'}
-            </div>
-          </div>
-        </div>
-
-        {/* Subdirectory Scope & Parent Repository Detection (Section 1, 2, 3, 16) */}
-        {intake.parent_repository_if_known && (
-          <div style={{ padding: '14px 18px', background: '#f8fafc', borderBottom: '1px solid var(--border-dim)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--blue)' }}>
-                  📁 SCOPED SUBDIRECTORY ANALYSIS TARGET
-                </span>
-                <span className="badge badge-ready" style={{ fontSize: 10 }}>VALID TARGET SCOPE</span>
-              </div>
-              <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                Parent: {intake.parent_repository_if_known}
-              </span>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10, lineHeight: 1.5 }}>
-              Selected scope is analyzed as a valid component (<strong>{intake.classification}</strong>). Findings requiring SoC bus or RTL register semantics will be flagged as requiring parent-repository context.
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={async () => {
-                  await api.updateProjectScope(activeProject.project_id, { action: 'SELECTED_SCOPE_ONLY' })
-                  alert("Target scope locked to selected component only.")
-                }}
-              >
-                [Analyze Selected Scope Only]
-              </button>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={async () => {
-                  try {
-                    await api.updateProjectScope(activeProject.project_id, { action: 'EXPAND_TO_PARENT' })
-                    alert("Project target expanded to parent repository!")
-                    window.location.reload()
-                  } catch (e) {
-                    alert(e.message)
-                  }
-                }}
-              >
-                [Expand to Parent Repository]
-              </button>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={async () => {
-                  const res = await api.updateProjectScope(activeProject.project_id, { action: 'INSPECT_DEPENDENCIES' })
-                  alert("Discovered parent components: " + (res.parent_components?.join(', ') || 'hw-model, rtl, rom, drivers'))
-                }}
-              >
-                [Inspect Required Dependencies]
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Small repository tailored prompt or SoC architecture briefing */}
-        <div style={{ padding: '16px 18px', background: isSmall ? '#fffbeb' : '#ffffff' }}>
-          {isSmall ? (
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--amber)', marginBottom: 4 }}>
-                Small / Generic Directory Detected
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
-                This directory contains {intake.files_summary?.total_analyzable || 2} analyzable files and no detected RTL hardware modules. Autonomous security planning is held. What would you like to do with this directory?
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {briefing?.recommended_actions?.map(action => (
-                  <button
-                    key={action.id}
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontSize: 12, padding: '5px 12px' }}
-                    onClick={() => {
-                      setInstruction(action.label)
-                      setInterpretedAction({
-                        goal: action.label,
-                        method: action.method,
-                        target: 'Detected files (hello.c, script.py)',
-                        tool: action.id === 'run_files' ? 'Runner' : 'Semgrep',
-                        parameters: { action_id: action.id },
-                        suggested_task: {
-                          title: `${action.label}: Small directory`,
-                          agent: 'AGY',
-                          tool: action.id === 'run_files' ? 'runner' : 'semgrep'
-                        }
-                      })
-                    }}
-                  >
-                    [{action.label}]
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-                Architecture Domains & Potential Analysis Areas:
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {briefing?.potential_analysis_areas?.map((area, idx) => (
-                  <span key={idx} className="mono" style={{ fontSize: 11, background: 'var(--bg-elevated)', padding: '3px 8px', borderRadius: 2, border: '1px solid var(--border-dim)' }}>
-                    • {area}
-                  </span>
-                )) || (
-                  <span className="mono text-muted" style={{ fontSize: 12 }}>Standard SoC Verification buckets available</span>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Natural User Instruction Box (Section 11) ─────────────────────────── */}
-      <div className="panel" style={{ marginBottom: 20, boxShadow: 'var(--shadow-sm)' }}>
-        <div className="panel-header" style={{ padding: '12px 18px' }}>
-          <span className="panel-title" style={{ fontSize: 14 }}>
-            DIRECT NATURAL INSTRUCTION (ANALYST INTENT)
-          </span>
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            Tell LLMorch what to do in plain engineering language
+            Instruction is deterministically analyzed into goal, method, tool, and agent
           </span>
         </div>
-
-        <div className="panel-body" style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ display: 'flex', gap: 10 }}>
+        <div className="panel-body" style={{ padding: '16px 18px' }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: interpretedAction ? 14 : 0 }}>
             <input
               type="text"
               className="form-control"
-              placeholder="e.g. 'Run those files.', 'Debug script.py.', 'Find bugs in the C file.', 'Tell me how to run them.'"
+              placeholder="e.g., Verify DPE command dispatch logic and check mailbox error handling"
               value={instruction}
-              onChange={e => setInstruction(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleInterpret() }}
-              style={{ fontSize: 14, padding: '8px 12px' }}
+              onChange={(e) => setInstruction(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleInterpret() }}
+              style={{ flex: 1, fontSize: 13 }}
             />
             <button
-              id="btn-interpret-instruction"
-              className="btn btn-primary btn-md"
+              className="btn btn-primary"
               onClick={handleInterpret}
               disabled={interpreting || !instruction.trim()}
-              style={{ minWidth: 150, fontWeight: 600 }}
+              style={{ minWidth: 160 }}
             >
-              {interpreting ? 'Interpreting...' : 'Interpret Action'}
+              {interpreting ? 'Interpreting...' : 'Interpret Intent'}
             </button>
           </div>
 
-          {/* Structured Interpreted Action Confirmation */}
           {interpretedAction && (
-            <div style={{ marginTop: 8, padding: '16px', background: 'var(--bg-subtle)', border: '1.5px solid var(--blue)', borderRadius: 4 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--blue)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  STRUCTURED INTERPRETED ACTION
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 4, padding: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--blue)' }}>
+                  Interpreted Task Configuration
                 </span>
-                <span className="badge badge-ready">READY FOR CONFIRMATION</span>
+                <span className="badge badge-ready">READY FOR EXECUTION</span>
               </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 14 }}>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Goal</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-bright)', marginTop: 2 }}>{interpretedAction.goal}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Method</div>
-                  <div style={{ fontSize: 13, color: 'var(--text-primary)', marginTop: 2 }}>{interpretedAction.method}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Target</div>
-                  <div className="mono" style={{ fontSize: 12, color: 'var(--text-primary)', marginTop: 2 }}>{interpretedAction.target}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Tool</div>
-                  <div className="mono" style={{ fontSize: 12, color: 'var(--blue)', marginTop: 2 }}>{interpretedAction.tool}</div>
-                </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, fontSize: 12, marginBottom: 12 }}>
+                <div><span className="text-muted">Goal:</span> <strong>{interpretedAction.goal}</strong></div>
+                <div><span className="text-muted">Method:</span> <span className="mono">{interpretedAction.method}</span></div>
+                <div><span className="text-muted">Tool:</span> <span className="mono">{interpretedAction.tool}</span></div>
+                <div><span className="text-muted">Agent:</span> <span className="mono">{interpretedAction.suggested_task?.agent || 'AGY'}</span></div>
               </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, borderTop: '1px solid var(--border-dim)', paddingTop: 12 }}>
-                <button className="btn btn-secondary btn-sm" onClick={() => setInterpretedAction(null)}>
-                  Edit Instruction
-                </button>
-                <button id="btn-confirm-interpreted-action" className="btn btn-success btn-sm" onClick={handleConfirmAction} style={{ fontWeight: 600, padding: '4px 14px' }}>
-                  ✓ Confirm & Dispatch Task
-                </button>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setInterpretedAction(null)}>Cancel</button>
+                <button className="btn btn-primary btn-sm" onClick={handleConfirmAction}>Dispatch Task</button>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* ── "WHAT WOULD YOU LIKE TO DO?" Primary Actions Grid (Section 8) ────── */}
-      <div className="panel" style={{ boxShadow: 'var(--shadow-sm)' }}>
-        <div className="panel-header" style={{ padding: '12px 18px' }}>
-          <span className="panel-title" style={{ fontSize: 14 }}>
-            WHAT WOULD YOU LIKE TO DO?
+      {/* ── Recent Activity Stream (Scrollable Panel) ────────────────────────── */}
+      <div className="panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 220 }}>
+        <div className="panel-header" style={{ padding: '12px 18px', background: 'var(--bg-subtle)' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-bright)' }}>
+            RECENT PROJECT ACTIVITY & AUDIT TRAIL
           </span>
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-            Choose an engineering workflow direction
+          <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            {activity.length} recent events
           </span>
         </div>
-
-        <div className="panel-body" style={{ padding: '20px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-          {/* Action 1 */}
-          <div
-            onClick={() => onNavigate('target-repo')}
-            style={{ padding: '16px', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: '#ffffff', transition: 'box-shadow 0.1s ease' }}
-            onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
-            onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
-          >
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--blue)', marginBottom: 6 }}>
-              ⊙ Analyze Repository
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-              Execute deep AST extraction, dependency graphs, and hardware/software contract detection.
-            </div>
-          </div>
-
-          {/* Action 2 */}
-          <div
-            onClick={() => onNavigate('verification-plan')}
-            style={{ padding: '16px', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: '#ffffff', transition: 'box-shadow 0.1s ease' }}
-            onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
-            onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
-          >
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--blue)', marginBottom: 6 }}>
-              📋 Start Verification Planning
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-              Generate or review the 23-bucket SoC coverage plan, resource gates, and work packages.
-            </div>
-          </div>
-
-          {/* Action 3 */}
-          <div
-            onClick={() => onOpenCreateTask ? onOpenCreateTask() : onNavigate('tasks')}
-            style={{ padding: '16px', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: '#ffffff', transition: 'box-shadow 0.1s ease' }}
-            onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
-            onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
-          >
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--blue)', marginBottom: 6 }}>
-              ⚡ Create Custom Task
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-              Configure and dispatch a specific formal, dynamic, or security audit task.
-            </div>
-          </div>
-
-          {/* Action 4 */}
-          <div
-            onClick={() => onNavigate('target-repo')}
-            style={{ padding: '16px', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: '#ffffff', transition: 'box-shadow 0.1s ease' }}
-            onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
-            onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
-          >
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
-              🔍 Inspect Repository Structure
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-              Browse directories, inspect RTL hierarchies, and review identified security surfaces.
-            </div>
-          </div>
-
-          {/* Action 5 */}
-          <div
-            onClick={() => onNavigate('context-fabric')}
-            style={{ padding: '16px', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: '#ffffff', transition: 'box-shadow 0.1s ease' }}
-            onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
-            onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
-          >
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
-              📖 Add Reference / Requirement
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-              Attach architecture documents, TRMs, or register specs to the Context Fabric.
-            </div>
-          </div>
-
-          {/* Action 6 */}
-          <div
-            onClick={() => onNavigate('runs')}
-            style={{ padding: '16px', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: '#ffffff', transition: 'box-shadow 0.1s ease' }}
-            onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'}
-            onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
-          >
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
-              ⏱ Open Previous Analysis
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-              Review past simulation runs, task attempt logs, and verification closure dossiers.
-            </div>
-          </div>
+        <div style={{ flex: 1, overflowY: 'auto', maxHeight: '320px', padding: 0 }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th style={{ width: 140 }}>Timestamp</th>
+                <th style={{ width: 160 }}>Event Type</th>
+                <th>Description</th>
+                <th style={{ width: 100 }}>Task / Run</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activity.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                    No recent events logged for this project. Launch a task or execute a verification plan to generate activity.
+                  </td>
+                </tr>
+              ) : (
+                activity.map((ev, i) => (
+                  <tr key={ev.event_id || i}>
+                    <td className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      {fmt(ev.timestamp)}
+                    </td>
+                    <td>
+                      <span className="badge badge-neutral" style={{ fontSize: 10, fontFamily: 'var(--font-mono)' }}>
+                        {ev.event_type}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: 12 }}>
+                      {ev.payload?.message || ev.payload?.title || ev.payload?.objective || JSON.stringify(ev.payload || {})}
+                    </td>
+                    <td className="mono" style={{ fontSize: 11, color: 'var(--blue)' }}>
+                      {ev.task_id || ev.run_id || '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

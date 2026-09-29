@@ -37,6 +37,7 @@ class RunSummary(BaseModel):
     agent_id: str
     status: str
     project_id: Optional[str] = None
+    display_id: Optional[str] = None
     run_state: str = "RUNNING"
     stage: Optional[str] = "REPOSITORY_ANALYSIS"
     repository_name: Optional[str] = None
@@ -92,6 +93,7 @@ class RunStateDetail(BaseModel):
 
 class TaskSummary(BaseModel):
     task_id: str
+    display_id: Optional[str] = None
     project_id: Optional[str] = None
     workflow_id: Optional[str] = None
     parent_task_id: Optional[str] = None
@@ -117,6 +119,12 @@ class TaskDetail(TaskSummary):
     repository_name: Optional[str] = None
     repository_path: Optional[str] = None
     description: Optional[str] = None
+    files: List[str] = Field(default_factory=list)
+    method: Optional[str] = None
+    tools: List[str] = Field(default_factory=list)
+    context: Optional[str] = None
+    expected_evidence: Optional[str] = None
+    workpackage_id: Optional[str] = None
     elapsed_seconds: Optional[float] = None
     tokens_consumed: int = 0
     runs: List[RunSummary] = Field(default_factory=list)
@@ -197,6 +205,7 @@ class EventEnvelope(BaseModel):
 
 class FindingSummary(BaseModel):
     finding_id: str
+    display_id: Optional[str] = None
     task_id: Optional[str] = None
     hypothesis: Optional[str] = None
     state: str = "OPEN"
@@ -219,9 +228,16 @@ class FindingDetail(FindingSummary):
 
 class EvidenceSummary(BaseModel):
     evidence_id: str
+    display_id: Optional[str] = None
     finding_id: Optional[str] = None
     task_id: Optional[str] = None
     source_tool: Optional[str] = None
+    source_file: Optional[str] = None
+    line_range: Optional[str] = None
+    function_name: Optional[str] = None
+    observation: Optional[str] = None
+    agent_id: Optional[str] = None
+    validator_result: Optional[str] = None
     timestamp: Optional[datetime] = None
     raw_hash: Optional[str] = None
     canonical_hash: Optional[str] = None

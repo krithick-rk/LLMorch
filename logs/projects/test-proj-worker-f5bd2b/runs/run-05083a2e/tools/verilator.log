@@ -1,0 +1,1 @@
+[2026-09-29T09:41:48.645635+00:00] [INFO] Execution exit=0 dur=34.1ms: verilator --version | {"tool_id": "verilator", "task_id": "task-ec1bc8f8", "command": "verilator --version", "exit_code": 0, "duration_ms": 34.059, "stdout": "Verilator 5.048 2026-04-26 rev v5.048-56-gc233a3905\n", "stderr": null}
