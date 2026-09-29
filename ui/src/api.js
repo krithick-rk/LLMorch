@@ -188,6 +188,8 @@ export const api = {
   createUserTask: (body) => req('/tasks/create', { method: 'POST', body: JSON.stringify(body) }),
   retryTaskWithOverrides: (taskId, body) => req(`/tasks/${taskId}/retry`, { method: 'POST', body: JSON.stringify(body) }),
   getTaskDiagnostics: (taskId) => req(`/tasks/${taskId}/diagnostics`),
+  getRunDiagnostics: (runId) => req(`/debug/runs/${runId}`),
+  getProjectDiagnostics: (projectId) => req(`/debug/project/${projectId}`),
   // Project Workspace & Natural Instruction Model
   projects: () => req('/projects'),
   activeProject: () => req('/projects/active'),
@@ -200,6 +202,9 @@ export const api = {
   interpretInstruction: (id, body) => req(`/projects/${id}/interpret`, { method: 'POST', body: JSON.stringify(body) }),
   updateProjectScope: (id, body) => req(`/projects/${id}/scope`, { method: 'POST', body: JSON.stringify(body) }),
   getProjectScope: (id) => req(`/projects/${id}/scope`),
+  projectLogs: (id) => req(`/projects/${id}/logs`),
+  projectLogContent: (id, logName, lines = 200) => req(`/projects/${id}/logs/${logName}?lines=${lines}`),
+  projectRunLogs: (id, runId, lines = 200) => req(`/projects/${id}/runs/${runId}/logs?lines=${lines}`),
 };
 
 export default api;

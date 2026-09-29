@@ -107,7 +107,7 @@ export default function ProjectHomePage({ activeProject, onNavigate, onOpenCreat
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px 28px', background: 'var(--bg-base)' }}>
       {/* ── Page Header ──────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 16 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', fontWeight: 600 }}>
@@ -126,7 +126,7 @@ export default function ProjectHomePage({ activeProject, onNavigate, onOpenCreat
         </div>
 
         {/* ── Primary Action Buttons (Requirement 2) ─────────────────────────── */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <button
             id="btn-open-verification-ws"
             className="btn btn-primary"
@@ -174,8 +174,8 @@ export default function ProjectHomePage({ activeProject, onNavigate, onOpenCreat
         </div>
       )}
 
-      {/* ── High-Level Metric Tiles (Requirement 2) ───────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, marginBottom: 20 }}>
+      {/* ── High-Level Metric Tiles (Requirement 2 & 22) ───────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, marginBottom: 20 }}>
         <div className="stat-tile blue">
           <div className="stat-label">Target Status</div>
           <div className="stat-value" style={{ fontSize: 20, color: 'var(--blue)' }}>

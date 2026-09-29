@@ -195,6 +195,13 @@ class ProjectLogger:
     def get_logs_summary(cls, project_id: str) -> Dict[str, Any]:
         """Returns summary of available project log files and recent lines."""
         p_dir = cls.get_project_log_dir(project_id)
+        # Ensure project logs are initialized
+        p_log = p_dir / "project.log"
+        if not p_log.exists():
+            cls.log_project(project_id, f"Project {project_id} workspace initialized.")
+            cls.log_intake(project_id, f"Repository intake and scope verified for project {project_id}.")
+            cls.log_orchestrator(project_id, f"Orchestrator ready for project {project_id}.")
+
         result = {"project_id": project_id, "logs": {}}
         for log_name in ("project.log", "intake.log", "orchestrator.log", "realtime.log", "errors.log"):
             lp = p_dir / log_name

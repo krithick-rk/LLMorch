@@ -279,6 +279,88 @@ def run_full_verification():
         print("  ✓ Captured: 08_settings_project_toggle.png")
 
         # -------------------------------------------------------------
+        # STEP 7: DEVELOPER DIAGNOSTICS & PROJECT LOGS DRAWER (Section 45 & 46)
+        # -------------------------------------------------------------
+        print("\n--- [STEP 7] Testing Developer Diagnostics & Project Logs Drawer ---")
+        btn_diag = page.locator("#btn-diagnostics").first
+        assert btn_diag.is_visible(), "Diagnostics button missing in header"
+        btn_diag.click()
+        time.sleep(1)
+
+        # 7.1 Verify Drawer is viewport-fixed and does not displace page
+        diag_backdrop = page.locator("#diagnostics-drawer-backdrop").first
+        assert diag_backdrop.is_visible(), "Diagnostics Drawer Backdrop not visible"
+        assert page.locator("text=Runtime Diagnostics & Logs").first.is_visible()
+        print("  ✓ Diagnostics Drawer opened successfully")
+
+        # 7.2 Check system diagnostics metrics
+        assert page.locator("text=Agent & Tool Processes").first.is_visible()
+        assert page.locator("text=Runtime State & Queue Metrics").first.is_visible()
+        assert page.locator("text=Claude Invocations: 0").first.is_visible()
+        print("  ✓ System diagnostics verified (AGY active, 0 Claude invocations)")
+
+        # 7.3 Switch to Project Logs tab
+        page.locator("#tab-diag-project-logs").first.click()
+        time.sleep(0.8)
+        assert page.locator("button:has-text('project.log')").first.is_visible()
+        assert page.locator("button:has-text('intake.log')").first.is_visible()
+        print("  ✓ Project Logs tab verified with project.log & intake.log")
+
+        # 7.4 Switch to Run Logs tab
+        page.locator("#tab-diag-run-logs").first.click()
+        time.sleep(0.8)
+        assert page.locator("text=Target Run:").first.is_visible()
+        print("  ✓ Run Logs tab verified")
+
+        page.screenshot(path=str(ARTIFACTS_DIR / "09_diagnostics_drawer.png"))
+        print("  ✓ Captured: 09_diagnostics_drawer.png")
+
+        # Close Diagnostics Drawer
+        page.locator("#diagnostics-drawer-content button:has-text('✕')").first.click()
+        time.sleep(0.5)
+
+        # -------------------------------------------------------------
+        # STEP 8: EVIDENCE MASTER / DETAIL INSPECTOR (Section 42)
+        # -------------------------------------------------------------
+        print("\n--- [STEP 8] Testing Evidence Master / Detail Inspector ---")
+        page.locator("#nav-evidence").first.click()
+        time.sleep(1.2)
+
+        assert page.locator("text=Evidence Viewer (Master / Detail)").first.is_visible()
+        assert page.locator("text=Source Tool").first.is_visible()
+        assert page.locator("text=Target File").first.is_visible()
+        
+        # Select first evidence row if available
+        first_evi = page.locator(".data-table tbody tr").first
+        if first_evi.is_visible():
+            first_evi.click()
+            time.sleep(0.5)
+            assert page.locator("text=LINKAGE:").first.is_visible()
+            assert page.locator("text=Tool Output / stdout").first.is_visible()
+            print("  ✓ Evidence Master/Detail verified with persistent inspector")
+
+        page.screenshot(path=str(ARTIFACTS_DIR / "10_evidence_master_detail.png"))
+        print("  ✓ Captured: 10_evidence_master_detail.png")
+
+        # -------------------------------------------------------------
+        # STEP 9: FINDING DOSSIER & TRACEABILITY CHAIN (Section 43)
+        # -------------------------------------------------------------
+        print("\n--- [STEP 9] Testing Finding Dossier & Traceability ---")
+        page.locator("#nav-dossier").first.click()
+        time.sleep(1.2)
+
+        assert page.locator("text=Finding Dossier").first.is_visible()
+        first_finding = page.locator(".data-table tbody tr").first
+        if first_finding.is_visible():
+            first_finding.click()
+            time.sleep(0.8)
+            assert page.locator("text=TRACE:").first.is_visible()
+            print("  ✓ Finding Dossier opened with clickable TRACE chain")
+
+        page.screenshot(path=str(ARTIFACTS_DIR / "11_finding_dossier.png"))
+        print("  ✓ Captured: 11_finding_dossier.png")
+
+        # -------------------------------------------------------------
         # SUMMARY & INVARIANT CHECKS
         # -------------------------------------------------------------
         print("\n--- Checking Invariants & Errors ---")

@@ -32,6 +32,7 @@ import ProjectSwitcher from './components/ProjectSwitcher'
 import NewProjectModal from './components/NewProjectModal'
 import ProjectHomePage from './components/ProjectHomePage'
 import MasterSessionPage from './components/MasterSessionPage'
+import DiagnosticsDrawer from './components/DiagnosticsDrawer'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1593,7 +1594,7 @@ const NAV_SECTIONS = [
       { id: 'home',               label: 'Project Home',      icon: '🏠' },
       { id: 'target-repo',        label: 'Repository',        icon: '⊙' },
       { id: 'master',             label: 'Master Session',    icon: '⬡' },
-      { id: 'verification-plan',  label: 'Verification Plan', icon: '📋' },
+      { id: 'verification-plan',  label: 'Verification Workspace', icon: '📋' },
     ],
   },
   {
@@ -1773,6 +1774,7 @@ export default function App() {
   const [createTaskContext, setCreateTaskContext] = useState(null)
   const [activeProject, setActiveProject] = useState(null)
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
 
   const handleOpenCreateTask = useCallback((ctx = null) => {
     setCreateTaskContext(ctx)
@@ -2237,6 +2239,10 @@ export default function App() {
             + Create Task
           </button>
 
+          <button id="btn-diagnostics" className="btn btn-ghost btn-sm" onClick={() => setIsDiagnosticsOpen(true)} title="Developer Diagnostics & Logs">
+            🛠 Diagnostics
+          </button>
+
           {!currentRun && (
             <button className="btn btn-primary btn-sm" onClick={() => setPage('target-repo')}>
               New Investigation
@@ -2289,6 +2295,14 @@ export default function App() {
             setRefreshSignal(s => s + 1)
             setPage('home')
           }}
+        />
+      )}
+      {isDiagnosticsOpen && (
+        <DiagnosticsDrawer
+          isOpen={isDiagnosticsOpen}
+          onClose={() => setIsDiagnosticsOpen(false)}
+          activeProject={activeProject}
+          currentRun={currentRun}
         />
       )}
 

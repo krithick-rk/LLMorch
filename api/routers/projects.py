@@ -329,6 +329,42 @@ def get_project_logs(project_id: str):
     return ProjectLogger.get_logs_summary(project_id)
 
 
+@router.get("/api/projects/{project_id}/logs/{log_name}", tags=["projects"])
+def get_project_log_content(project_id: str, log_name: str, lines: int = 200):
+    from history.project_logger import ProjectLogger
+    repo = _get_project_repo()
+    p = repo.get_project(project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+    safe_name = os.path.basename(log_name)
+    p_dir = ProjectLogger.get_project_log_dir(project_id)
+    lp = p_dir / safe_name
+    if not lp.exists():
+        return {"log_name": safe_name, "exists": False, "lines": []}
+    content = lp.read_text(encoding="utf-8", errors="ignore").splitlines()
+    return {"log_name": safe_name, "exists": True, "total_lines": len(content), "lines": content[-lines:]}
+
+
+@router.get("/api/projects/{project_id}/runs/{run_id}/logs", tags=["projects"])
+def get_project_run_logs(project_id: str, run_id: str, lines: int = 200):
+    from history.project_logger import ProjectLogger
+    repo = _get_project_repo()
+    p = repo.get_project(project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"Project {project_id} not found")
+    r_dir = ProjectLogger.get_run_log_dir(project_id, run_id)
+    results = {}
+    if r_dir.exists():
+        for f in r_dir.glob("*.log"):
+            content = f.read_text(encoding="utf-8", errors="ignore").splitlines()
+            results[f.name] = {"total_lines": len(content), "lines": content[-lines:]}
+        jsonl = r_dir / "execution.jsonl"
+        if jsonl.exists():
+            jlines = jsonl.read_text(encoding="utf-8", errors="ignore").splitlines()
+            results["execution.jsonl"] = {"total_lines": len(jlines), "lines": jlines[-lines:]}
+    return {"project_id": project_id, "run_id": run_id, "logs": results}
+
+
 @router.get("/api/projects/{project_id}/briefing", tags=["projects"])
 def get_project_briefing(project_id: str):
     repo = _get_project_repo()
