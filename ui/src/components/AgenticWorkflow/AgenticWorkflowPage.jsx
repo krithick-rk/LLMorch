@@ -19,7 +19,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   useNodesState,
   useEdgesState,
   MarkerType,
@@ -140,7 +139,138 @@ function CustomWorkflowNode({ data }) {
   )
 }
 
-const customNodeTypes = { workflowNode: CustomWorkflowNode }
+// ── n8n-Style Custom Nodes ────────────────────────────────────────────────────
+function TriggerNode({ data }) {
+  const isSelected = data.isSelected
+  return (
+    <div
+      onClick={() => data.onSelect && data.onSelect(data)}
+      style={{
+        background: '#1f1f2e',
+        border: `1.5px solid ${isSelected ? '#38bdf8' : '#3a3a5c'}`,
+        borderRadius: 12,
+        padding: '12px 16px',
+        minWidth: 140,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+        boxShadow: isSelected
+          ? '0 0 0 2px #38bdf888, 0 8px 24px rgba(0,0,0,0.6)'
+          : '0 4px 16px rgba(0,0,0,0.5)',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+        fontFamily: 'var(--font-sans, -apple-system, sans-serif)',
+      }}
+    >
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <span style={{ fontSize: 18, color: '#f59e0b' }}>⚡</span>
+        <span style={{ fontSize: 20 }}>💬</span>
+      </div>
+      <div style={{ fontSize: 11, color: '#e2e8f0', textAlign: 'center', fontWeight: 600 }}>
+        {data.label || 'When task message received'}
+      </div>
+      {data.subtitle && (
+        <div style={{ fontSize: 9, color: '#94a3b8', textAlign: 'center' }}>
+          {data.subtitle}
+        </div>
+      )}
+      <Handle type="source" position={Position.Right} style={{ background: '#5b5bd6', width: 8, height: 8 }} />
+    </div>
+  )
+}
+
+function TaskPlannerNode({ data }) {
+  const isSelected = data.isSelected
+  return (
+    <div
+      onClick={() => data.onSelect && data.onSelect(data)}
+      style={{
+        background: '#252535',
+        border: `1.5px solid ${isSelected ? '#38bdf8' : '#5b5bd6'}`,
+        borderRadius: 12,
+        padding: '14px 20px',
+        minWidth: 220,
+        boxShadow: isSelected
+          ? '0 0 0 2px #38bdf888, 0 8px 24px rgba(0,0,0,0.6)'
+          : '0 0 0 1px #5b5bd622, 0 8px 24px rgba(0,0,0,0.6)',
+        position: 'relative',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+        fontFamily: 'var(--font-sans, -apple-system, sans-serif)',
+      }}
+    >
+      <Handle type="target" position={Position.Left} style={{ background: '#5b5bd6', width: 8, height: 8 }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 22 }}>🤖</span>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#f8fafc' }}>Task Planner</div>
+          <div style={{ fontSize: 10, color: '#94a3b8' }}>{data.subtitle}</div>
+        </div>
+        <button
+          style={{
+            marginLeft: 'auto', background: '#1e1e2e', border: '1px solid #3a3a5c',
+            borderRadius: '50%', width: 22, height: 22, color: '#94a3b8', cursor: 'pointer', fontSize: 14,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1
+          }}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (data.onAdd) data.onAdd()
+          }}
+          title="Create Task"
+        >+</button>
+      </div>
+      {/* Bottom connector handles for Chat Model / Memory / Tool */}
+      <Handle type="source" position={Position.Bottom} id="chat-model" style={{ left: '25%', background: '#5b5bd6', width: 8, height: 8 }} />
+      <Handle type="source" position={Position.Bottom} id="memory"     style={{ left: '50%', background: '#1e4fd8', width: 8, height: 8 }} />
+      <Handle type="source" position={Position.Bottom} id="tool"       style={{ left: '75%', background: '#1e6e3e', width: 8, height: 8 }} />
+    </div>
+  )
+}
+
+function CircularAgentNode({ data }) {
+  const isRunning = ['RUNNING', 'ANALYZING', 'TOOL_RUNNING'].includes(data.status)
+  const isSelected = data.isSelected
+  return (
+    <div
+      onClick={() => data.onSelect && data.onSelect(data)}
+      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, cursor: 'pointer', fontFamily: 'var(--font-sans, -apple-system, sans-serif)' }}
+    >
+      <Handle type="target" position={Position.Top} style={{ background: data.color || '#6c3fff', width: 8, height: 8 }} />
+      <div
+        style={{
+          width: 64, height: 64, borderRadius: '50%',
+          background: data.color || '#6c3fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 24,
+          boxShadow: isSelected
+            ? `0 0 0 3px #38bdf8, 0 0 20px ${data.color}88`
+            : isRunning
+              ? `0 0 0 3px ${data.color}66, 0 0 16px ${data.color}44`
+              : '0 4px 12px rgba(0,0,0,0.4)',
+          cursor: 'pointer',
+          border: isSelected ? '2px solid #38bdf8' : `2px solid ${data.color}aa`,
+          transition: 'box-shadow 0.3s ease, border 0.3s ease'
+        }}
+      >
+        {data.icon}
+      </div>
+      <div style={{ fontSize: 11, color: '#cbd5e1', fontWeight: 600, textAlign: 'center', maxWidth: 100 }}>
+        {data.label}
+      </div>
+      {data.sublabel && (
+        <div style={{ fontSize: 9, color: '#64748b', textAlign: 'center', maxWidth: 100 }}>
+          {data.sublabel}
+        </div>
+      )}
+      <Handle type="source" position={Position.Bottom} style={{ background: data.color || '#6c3fff', width: 8, height: 8 }} />
+    </div>
+  )
+}
+
+const customNodeTypes = {
+  workflowNode:      CustomWorkflowNode,
+  triggerNode:       TriggerNode,
+  taskPlannerNode:   TaskPlannerNode,
+  circularAgentNode: CircularAgentNode,
+}
 
 export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
   const [loading, setLoading] = useState(true)
@@ -254,163 +384,68 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
       setSelectedNode(nodeData)
     }
 
-    // 1. PROJECT Node
-    const projId = 'node-project'
+    // 1. TRIGGER (left anchor)
+    const runningTask = data.tasks.find(t => t.status === 'RUNNING') || data.tasks[0]
+    const triggerId = 'node-trigger'
     newNodes.push({
-      id: projId,
-      type: 'workflowNode',
-      position: { x: 380, y: 30 },
+      id: triggerId,
+      type: 'triggerNode',
+      position: { x: 60, y: 220 },
       data: {
-        nodeType: 'project',
-        title: data.project.display_id || 'PROJ-001',
-        subtitle: data.project.name || 'Caliptra Runtime Benchmark',
-        status: 'ACTIVE',
-        extraInfo: 'Isolated SoC Workspace',
-        rawData: data.project,
-        isSelected: selectedNode?.id === projId,
+        id: triggerId,
+        nodeType: 'trigger',
+        title: 'Task Trigger',
+        label: runningTask ? `Task: ${runningTask.display_id}` : 'When task message received',
+        subtitle: runningTask?.objective ? (runningTask.objective.slice(0, 26) + '...') : 'Autonomous trigger',
+        status: runningTask?.status || 'READY',
+        extraInfo: 'Trigger event from incoming SoC task / user prompt',
+        rawData: runningTask || { trigger: 'event', mode: 'auto' },
+        isSelected: selectedNode?.id === triggerId,
         onSelect: selectHandler
       }
     })
 
-    // 2. SUPERVISOR Node
-    const supId = 'node-supervisor'
+    // 2. TASK PLANNER (centre)
+    const runningCount = data.tasks.filter(t => t.status === 'RUNNING').length
+    const plannerId = 'node-taskplanner'
     newNodes.push({
-      id: supId,
-      type: 'workflowNode',
-      position: { x: 380, y: 160 },
+      id: plannerId,
+      type: 'taskPlannerNode',
+      position: { x: 360, y: 180 },
       data: {
-        nodeType: 'supervisor',
-        title: 'SUPERVISOR',
-        subtitle: 'Adaptive Plan Synthesis',
-        status: 'READY',
-        extraInfo: '23-Bucket SoC Ontology',
-        rawData: { role: 'SUPERVISOR', mode: 'ADAPTIVE' },
-        isSelected: selectedNode?.id === supId,
-        onSelect: selectHandler
-      }
-    })
-    newEdges.push({
-      id: `${projId}->${supId}`,
-      source: projId, target: supId,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#3b82f6' },
-      style: { stroke: '#3b82f6', strokeWidth: 2 }
-    })
-
-    // 3. ORCHESTRATOR Node
-    const orchId = 'node-orchestrator'
-    newNodes.push({
-      id: orchId,
-      type: 'workflowNode',
-      position: { x: 380, y: 290 },
-      data: {
+        id: plannerId,
         nodeType: 'orchestrator',
-        title: 'ORCHESTRATOR',
-        subtitle: 'Scheduler & Watchdog',
+        title: 'Task Planner',
+        subtitle: `${runningCount} running · ${data.tasks.length} total`,
         status: 'RUNNING',
-        extraInfo: 'Dynamic Dispatch & Policy Gate',
-        rawData: { queue_depth: data.tasks.filter(t => t.status === 'QUEUED').length, running: data.tasks.filter(t => t.status === 'RUNNING').length },
-        isSelected: selectedNode?.id === orchId,
+        extraInfo: `${data.workPackages.length} WorkPackages · ${data.tasks.length} Tasks`,
+        rawData: {
+          role: 'TASK_PLANNER',
+          running_tasks: runningCount,
+          total_tasks: data.tasks.length,
+          work_packages: data.workPackages.length,
+          project: data.project
+        },
+        onAdd: () => onNavigate && onNavigate('tasks'),
+        isSelected: selectedNode?.id === plannerId,
         onSelect: selectHandler
       }
     })
+
+    // Animated edge from trigger -> task planner
     newEdges.push({
-      id: `${supId}->${orchId}`,
-      source: supId, target: orchId,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#8b5cf6' },
-      style: { stroke: '#8b5cf6', strokeWidth: 2 }
+      id: 'trigger->planner',
+      source: triggerId,
+      target: plannerId,
+      animated: true,
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#5b5bd6' },
+      style: { stroke: '#5b5bd6', strokeWidth: 2 }
     })
 
-    // 4. WORKPACKAGES Nodes
-    const wps = data.workPackages.slice(0, 3)
-    wps.forEach((wp, idx) => {
-      const wpNodeId = `node-wp-${wp.package_id}`
-      const wpX = 140 + idx * 240
-      const wpStatus = wp.status || 'PROPOSED'
-      if (!isMatchFilter(wpStatus, `${wp.display_id} ${wp.name}`)) return
-
-      newNodes.push({
-        id: wpNodeId,
-        type: 'workflowNode',
-        position: { x: wpX, y: 430 },
-        data: {
-          nodeType: 'workpackage',
-          title: wp.display_id || `WP-00${idx + 1}`,
-          subtitle: wp.name || 'Firmware Security',
-          status: wpStatus,
-          extraInfo: `${fmtK(wp.estimated_tokens || 42000)} tokens · ${wp.bucket || 'SECURITY'}`,
-          rawData: wp,
-          isSelected: selectedNode?.id === wpNodeId,
-          onSelect: selectHandler
-        }
-      })
-      newEdges.push({
-        id: `${orchId}->${wpNodeId}`,
-        source: orchId, target: wpNodeId,
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981' },
-        style: { stroke: '#10b981', strokeWidth: 1.5 }
-      })
-
-      // 5. TASKS connected to this WorkPackage
-      const relatedTasks = data.tasks.filter(t => t.work_package_id === wp.package_id || idx === 0).slice(0, 2)
-      relatedTasks.forEach((task, tIdx) => {
-        const taskNodeId = `node-task-${task.task_id}`
-        const taskX = wpX - 50 + tIdx * 160
-        const tStatus = task.status || 'RUNNING'
-        if (!isMatchFilter(tStatus, `${task.display_id} ${task.objective} ${task.current_file}`)) return
-
-        newNodes.push({
-          id: taskNodeId,
-          type: 'workflowNode',
-          position: { x: taskX, y: 580 },
-          data: {
-            nodeType: 'task',
-            title: task.display_id || `TASK-00${tIdx + 1}`,
-            subtitle: task.current_stage || task.status || 'ANALYZING',
-            status: tStatus,
-            extraInfo: task.current_file || 'runtime/src/drivers.rs',
-            rawData: task,
-            isSelected: selectedNode?.id === taskNodeId,
-            onSelect: selectHandler
-          }
-        })
-        newEdges.push({
-          id: `${wpNodeId}->${taskNodeId}`,
-          source: wpNodeId, target: taskNodeId,
-          markerEnd: { type: MarkerType.ArrowClosed, color: '#0284c7' },
-          style: { stroke: '#0284c7', strokeWidth: 1.5 }
-        })
-
-        // Optional Expanded Files (Section 13 & 57)
-        if (expandedFiles) {
-          const fileNodeId = `node-file-${task.task_id}`
-          newNodes.push({
-            id: fileNodeId,
-            type: 'workflowNode',
-            position: { x: taskX - 20, y: 720 },
-            data: {
-              nodeType: 'file',
-              title: task.current_file || 'drivers.rs',
-              subtitle: 'runtime/src/drivers.rs',
-              status: 'IN_SCOPE',
-              extraInfo: 'Locality controller implementation',
-              rawData: { file: task.current_file },
-              isSelected: selectedNode?.id === fileNodeId,
-              onSelect: selectHandler
-            }
-          })
-          newEdges.push({
-            id: `${taskNodeId}->${fileNodeId}`,
-            source: taskNodeId, target: fileNodeId,
-            style: { stroke: '#64748b', strokeDasharray: '4 4' }
-          })
-        }
-      })
-    })
-
-    // 6. AGENTS Nodes (AGY & Codex)
-    const agyAgent = data.agents.find(a => a.agent_id?.toLowerCase().includes('agy')) || {
+    // 3. REASONING LLM sub-node
+    const agyAgent = data.agents.find(a => a.agent_id?.toLowerCase().includes('agy')) || data.agents[0] || {
       agent_id: 'AGY',
-      display_name: 'Antigravity (AGY)',
+      display_name: 'AGY',
       status: 'RUNNING',
       enabled: true,
       role: 'Firmware Security Analyst',
@@ -418,229 +453,378 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
       current_file: 'runtime/src/drivers.rs',
       current_tool: 'rust_source_inspector'
     }
-
-    const agyId = 'node-agent-agy'
+    const reasoningId = 'node-reasoning'
     newNodes.push({
-      id: agyId,
-      type: 'workflowNode',
-      position: { x: 300, y: 760 },
+      id: reasoningId,
+      type: 'circularAgentNode',
+      position: { x: 280, y: 380 },
       data: {
+        id: reasoningId,
         nodeType: 'agent',
-        title: 'AGY (Antigravity)',
-        subtitle: agyAgent.current_file || 'runtime/src/drivers.rs',
-        status: agyAgent.enabled ? (agyAgent.status || 'RUNNING') : 'DISABLED',
-        extraInfo: `Tool: ${agyAgent.current_tool || 'rust_source_inspector'}`,
+        title: 'Reasoning LLM',
+        label: 'Reasoning LLM',
+        icon: '🔁',
+        color: '#6c3fff',
+        status: agyAgent.status || 'RUNNING',
+        sublabel: agyAgent.display_name || 'AGY',
+        extraInfo: `Model: ${agyAgent.provider || 'Antigravity'} · Role: ${agyAgent.role || 'Firmware Security Analyst'}`,
         rawData: agyAgent,
-        isSelected: selectedNode?.id === agyId,
-        onSelect: selectHandler
-      }
-    })
-
-    // Connect Orchestrator or active task to AGY
-    newEdges.push({
-      id: `orch->${agyId}`,
-      source: orchId, target: agyId,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#22c55e' },
-      style: { stroke: '#22c55e', strokeWidth: 1.8 }
-    })
-
-    // 7. TOOL Node
-    const toolId = 'node-tool-rust'
-    newNodes.push({
-      id: toolId,
-      type: 'workflowNode',
-      position: { x: 300, y: 920 },
-      data: {
-        nodeType: 'tool',
-        title: 'rust_source_inspector',
-        subtitle: 'cargo check & AST traversal',
-        status: 'RUNNING',
-        extraInfo: 'Deterministic · Exit Code 0',
-        rawData: { tool_name: 'rust_source_inspector', command: 'cargo check --message-format=json', exit_code: 0 },
-        isSelected: selectedNode?.id === toolId,
+        isSelected: selectedNode?.id === reasoningId,
         onSelect: selectHandler
       }
     })
     newEdges.push({
-      id: `${agyId}->${toolId}`,
-      source: agyId, target: toolId,
-      label: 'TOOL_REQUEST',
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1' },
-      style: { stroke: '#6366f1', strokeWidth: 1.8 }
+      id: 'planner->reasoning',
+      source: plannerId,
+      target: reasoningId,
+      sourceHandle: 'chat-model',
+      label: 'Chat Model*',
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#5b5bd6' },
+      style: { stroke: '#5b5bd6', strokeWidth: 1.5, strokeDasharray: '6 3' },
+      labelStyle: { fill: '#64748b', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
+      labelBgStyle: { fill: '#13131f', fillOpacity: 0.8 },
+      labelBgPadding: [4, 6],
+      labelBgBorderRadius: 4,
     })
 
-    // 8. SCOPED HANDOFF & CODEX Node (Section 11)
-    const hoId = 'node-handoff-1'
-    const codexId = 'node-agent-codex'
+    // 4. MEMORY sub-node
+    const memoryId = 'node-memory'
     newNodes.push({
-      id: hoId,
-      type: 'workflowNode',
-      position: { x: 580, y: 760 },
+      id: memoryId,
+      type: 'circularAgentNode',
+      position: { x: 460, y: 380 },
       data: {
-        nodeType: 'handoff',
-        title: 'SCOPED HANDOFF',
-        subtitle: 'PROJ-001-HO-001',
-        status: 'MEDIATED',
-        extraInfo: 'AGY → Orchestrator → Codex',
-        rawData: {
-          handoff_id: 'PROJ-001-HO-001',
-          source_agent: 'AGY',
-          destination_agent: 'Codex',
-          reason: 'Independent verification of mailbox deserialization invariants',
-          files: ['runtime/src/mailbox.rs']
-        },
-        isSelected: selectedNode?.id === hoId,
-        onSelect: selectHandler
-      }
-    })
-    newEdges.push({
-      id: `${agyId}->${hoId}`,
-      source: agyId, target: hoId,
-      label: 'HANDOFF_REQUEST',
-      style: { stroke: '#a855f7', strokeDasharray: '4 4' }
-    })
-
-    newNodes.push({
-      id: codexId,
-      type: 'workflowNode',
-      position: { x: 580, y: 920 },
-      data: {
-        nodeType: 'agent',
-        title: 'Codex (OpenAI)',
-        subtitle: 'Secondary Verification',
+        id: memoryId,
+        nodeType: 'memory',
+        title: 'Memory Context Fabric',
+        label: 'Memory',
+        icon: '🗄️',
+        color: '#1e4fd8',
+        sublabel: 'Context Fabric',
         status: 'READY',
-        extraInfo: 'Role: Exploit Minimizer',
-        rawData: { agent_id: 'Codex', provider: 'OpenAI', enabled: true },
-        isSelected: selectedNode?.id === codexId,
+        extraInfo: 'SoC Context Fabric + History',
+        rawData: { description: 'SoC Context Fabric + History', items_count: data.evidence.length + data.events.length },
+        isSelected: selectedNode?.id === memoryId,
         onSelect: selectHandler
       }
     })
     newEdges.push({
-      id: `${hoId}->${codexId}`,
-      source: hoId, target: codexId,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#a855f7' },
-      style: { stroke: '#a855f7', strokeWidth: 1.8 }
+      id: 'planner->memory',
+      source: plannerId,
+      target: memoryId,
+      sourceHandle: 'memory',
+      label: 'Memory',
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#1e4fd8' },
+      style: { stroke: '#1e4fd8', strokeWidth: 1.5, strokeDasharray: '6 3' },
+      labelStyle: { fill: '#64748b', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
+      labelBgStyle: { fill: '#13131f', fillOpacity: 0.8 },
+      labelBgPadding: [4, 6],
+      labelBgBorderRadius: 4,
     })
 
-    // 9. EVIDENCE Node
-    const primaryEvi = data.evidence[0] || {
-      display_id: 'PROJ-001-EVI-001',
-      source_file: 'runtime/src/drivers.rs',
-      validator_result: 'CONFIRMED'
+    // 5. TOOL sub-nodes (real from data.tools, fallback to defaults)
+    const toolList = data.tools.length > 0 ? data.tools.slice(0, 2) : [
+      { tool_name: 'rust_source_inspector', display_id: 'add_update_tasks' },
+      { tool_name: 'semgrep', display_id: 'search_task' }
+    ]
+    toolList.forEach((tool, idx) => {
+      const toolId = `node-tool-${idx}`
+      const toolLabel = tool.display_id || tool.tool_name || `tool_${idx}`
+      newNodes.push({
+        id: toolId,
+        type: 'circularAgentNode',
+        position: { x: 640 + idx * 140, y: 380 },
+        data: {
+          id: toolId,
+          nodeType: 'tool',
+          title: toolLabel,
+          label: toolLabel,
+          icon: '📋',
+          color: '#1e6e3e',
+          status: 'READY',
+          sublabel: idx === 0 ? 'appendOrUpdate: sheet' : 'read: sheet',
+          extraInfo: `Tool execution engine · ${tool.tool_name || toolLabel}`,
+          rawData: tool,
+          isSelected: selectedNode?.id === toolId,
+          onSelect: selectHandler
+        }
+      })
+      newEdges.push({
+        id: `planner->tool-${idx}`,
+        source: plannerId,
+        target: toolId,
+        sourceHandle: 'tool',
+        label: 'Tool',
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#1e6e3e' },
+        style: { stroke: '#1e6e3e', strokeWidth: 1.5, strokeDasharray: '6 3' },
+        labelStyle: { fill: '#64748b', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
+        labelBgStyle: { fill: '#13131f', fillOpacity: 0.8 },
+        labelBgPadding: [4, 6],
+        labelBgBorderRadius: 4,
+      })
+    })
+
+    // 6. When expandedDeps is true — append deeper dependency graph below
+    if (expandedDeps) {
+      const wps = data.workPackages.slice(0, 3)
+      wps.forEach((wp, idx) => {
+        const wpNodeId = `node-wp-${wp.package_id}`
+        const wpX = 140 + idx * 240
+        const wpStatus = wp.status || 'PROPOSED'
+        if (!isMatchFilter(wpStatus, `${wp.display_id} ${wp.name}`)) return
+
+        newNodes.push({
+          id: wpNodeId,
+          type: 'workflowNode',
+          position: { x: wpX, y: 560 },
+          data: {
+            nodeType: 'workpackage',
+            title: wp.display_id || `WP-00${idx + 1}`,
+            subtitle: wp.name || 'Firmware Security',
+            status: wpStatus,
+            extraInfo: `${fmtK(wp.estimated_tokens || 42000)} tokens · ${wp.bucket || 'SECURITY'}`,
+            rawData: wp,
+            isSelected: selectedNode?.id === wpNodeId,
+            onSelect: selectHandler
+          }
+        })
+        newEdges.push({
+          id: `${plannerId}->${wpNodeId}`,
+          source: plannerId, target: wpNodeId,
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981' },
+          style: { stroke: '#10b981', strokeWidth: 1.5 }
+        })
+
+        // TASKS connected to this WorkPackage
+        const relatedTasks = data.tasks.filter(t => t.work_package_id === wp.package_id || idx === 0).slice(0, 2)
+        relatedTasks.forEach((task, tIdx) => {
+          const taskNodeId = `node-task-${task.task_id}`
+          const taskX = wpX - 50 + tIdx * 160
+          const tStatus = task.status || 'RUNNING'
+          if (!isMatchFilter(tStatus, `${task.display_id} ${task.objective} ${task.current_file}`)) return
+
+          newNodes.push({
+            id: taskNodeId,
+            type: 'workflowNode',
+            position: { x: taskX, y: 710 },
+            data: {
+              nodeType: 'task',
+              title: task.display_id || `TASK-00${tIdx + 1}`,
+              subtitle: task.current_stage || task.status || 'ANALYZING',
+              status: tStatus,
+              extraInfo: task.current_file || 'runtime/src/drivers.rs',
+              rawData: task,
+              isSelected: selectedNode?.id === taskNodeId,
+              onSelect: selectHandler
+            }
+          })
+          newEdges.push({
+            id: `${wpNodeId}->${taskNodeId}`,
+            source: wpNodeId, target: taskNodeId,
+            markerEnd: { type: MarkerType.ArrowClosed, color: '#0284c7' },
+            style: { stroke: '#0284c7', strokeWidth: 1.5 }
+          })
+
+          // Optional Expanded Files
+          if (expandedFiles) {
+            const fileNodeId = `node-file-${task.task_id}`
+            newNodes.push({
+              id: fileNodeId,
+              type: 'workflowNode',
+              position: { x: taskX - 20, y: 850 },
+              data: {
+                nodeType: 'file',
+                title: task.current_file || 'drivers.rs',
+                subtitle: 'runtime/src/drivers.rs',
+                status: 'IN_SCOPE',
+                extraInfo: 'Locality controller implementation',
+                rawData: { file: task.current_file },
+                isSelected: selectedNode?.id === fileNodeId,
+                onSelect: selectHandler
+              }
+            })
+            newEdges.push({
+              id: `${taskNodeId}->${fileNodeId}`,
+              source: taskNodeId, target: fileNodeId,
+              style: { stroke: '#64748b', strokeDasharray: '4 4' }
+            })
+          }
+        })
+      })
+
+      // SCOPED HANDOFF & CODEX Node
+      const hoId = 'node-handoff-1'
+      const codexId = 'node-agent-codex'
+      newNodes.push({
+        id: hoId,
+        type: 'workflowNode',
+        position: { x: 580, y: 710 },
+        data: {
+          nodeType: 'handoff',
+          title: 'SCOPED HANDOFF',
+          subtitle: 'PROJ-001-HO-001',
+          status: 'MEDIATED',
+          extraInfo: 'AGY → Orchestrator → Codex',
+          rawData: {
+            handoff_id: 'PROJ-001-HO-001',
+            source_agent: 'AGY',
+            destination_agent: 'Codex',
+            reason: 'Independent verification of mailbox deserialization invariants',
+            files: ['runtime/src/mailbox.rs']
+          },
+          isSelected: selectedNode?.id === hoId,
+          onSelect: selectHandler
+        }
+      })
+      newEdges.push({
+        id: `${reasoningId}->${hoId}`,
+        source: reasoningId, target: hoId,
+        label: 'HANDOFF_REQUEST',
+        style: { stroke: '#a855f7', strokeDasharray: '4 4' }
+      })
+
+      newNodes.push({
+        id: codexId,
+        type: 'workflowNode',
+        position: { x: 580, y: 870 },
+        data: {
+          nodeType: 'agent',
+          title: 'Codex (OpenAI)',
+          subtitle: 'Secondary Verification',
+          status: 'READY',
+          extraInfo: 'Role: Exploit Minimizer',
+          rawData: { agent_id: 'Codex', provider: 'OpenAI', enabled: true },
+          isSelected: selectedNode?.id === codexId,
+          onSelect: selectHandler
+        }
+      })
+      newEdges.push({
+        id: `${hoId}->${codexId}`,
+        source: hoId, target: codexId,
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#a855f7' },
+        style: { stroke: '#a855f7', strokeWidth: 1.8 }
+      })
+
+      // EVIDENCE Node
+      const primaryEvi = data.evidence[0] || {
+        display_id: 'PROJ-001-EVI-001',
+        source_file: 'runtime/src/drivers.rs',
+        validator_result: 'CONFIRMED'
+      }
+      const eviId = 'node-evidence-primary'
+      newNodes.push({
+        id: eviId,
+        type: 'workflowNode',
+        position: { x: 300, y: 1030 },
+        data: {
+          nodeType: 'evidence',
+          title: primaryEvi.display_id || 'PROJ-001-EVI-001',
+          subtitle: primaryEvi.source_file || 'runtime/src/drivers.rs',
+          status: primaryEvi.validator_result || 'CONFIRMED',
+          extraInfo: 'Deterministic Reproducer Proof',
+          rawData: primaryEvi,
+          isSelected: selectedNode?.id === eviId,
+          onSelect: selectHandler
+        }
+      })
+      newEdges.push({
+        id: `reasoning->${eviId}`,
+        source: reasoningId, target: eviId,
+        label: 'EVIDENCE_PRODUCED',
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#14b8a6' },
+        style: { stroke: '#14b8a6', strokeWidth: 1.8 }
+      })
+
+      // VALIDATOR Node
+      const valId = 'node-validator'
+      newNodes.push({
+        id: valId,
+        type: 'workflowNode',
+        position: { x: 300, y: 1190 },
+        data: {
+          nodeType: 'validator',
+          title: 'VALIDATOR',
+          subtitle: 'Invariant Verification',
+          status: 'CONFIRMED',
+          extraInfo: 'Exit Code 0 Verified',
+          rawData: { validator_type: 'INVARIANT_RUNNER', verdict: 'CONFIRMED' },
+          isSelected: selectedNode?.id === valId,
+          onSelect: selectHandler
+        }
+      })
+      newEdges.push({
+        id: `${eviId}->${valId}`,
+        source: eviId, target: valId,
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#0d9488' },
+        style: { stroke: '#0d9488', strokeWidth: 1.8 }
+      })
+
+      // FINDING Node
+      const primaryFind = data.findings[0] || {
+        display_id: 'PROJ-001-VUL-001',
+        hypothesis: 'Locality check bypass in mailbox dispatcher',
+        severity: 'HIGH',
+        state: 'CONFIRMED'
+      }
+      const findId = 'node-finding-primary'
+      newNodes.push({
+        id: findId,
+        type: 'workflowNode',
+        position: { x: 300, y: 1350 },
+        data: {
+          nodeType: 'finding',
+          title: primaryFind.display_id || 'PROJ-001-VUL-001',
+          subtitle: primaryFind.hypothesis?.slice(0, 32) || 'Locality check bypass',
+          status: primaryFind.state || 'CONFIRMED',
+          severity: primaryFind.severity || 'HIGH',
+          extraInfo: 'Dossier & Trace Linked',
+          rawData: primaryFind,
+          isSelected: selectedNode?.id === findId,
+          onSelect: selectHandler
+        }
+      })
+      newEdges.push({
+        id: `${valId}->${findId}`,
+        source: valId, target: findId,
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#ef4444' },
+        style: { stroke: '#ef4444', strokeWidth: 2 }
+      })
+
+      // CLOSURE Node
+      const closureId = 'node-closure'
+      newNodes.push({
+        id: closureId,
+        type: 'workflowNode',
+        position: { x: 300, y: 1510 },
+        data: {
+          nodeType: 'closure',
+          title: 'VERIFICATION CLOSURE',
+          subtitle: 'Signoff Readiness: 66.7%',
+          status: 'READY',
+          extraInfo: 'Formal Security Invariant Signoff',
+          rawData: { coverage_pct: 66.7, findings_confirmed: 1 },
+          isSelected: selectedNode?.id === closureId,
+          onSelect: selectHandler
+        }
+      })
+      newEdges.push({
+        id: `${findId}->${closureId}`,
+        source: findId, target: closureId,
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#eab308' },
+        style: { stroke: '#eab308', strokeWidth: 2 }
+      })
     }
-    const eviId = 'node-evidence-primary'
-    newNodes.push({
-      id: eviId,
-      type: 'workflowNode',
-      position: { x: 300, y: 1080 },
-      data: {
-        nodeType: 'evidence',
-        title: primaryEvi.display_id || 'PROJ-001-EVI-001',
-        subtitle: primaryEvi.source_file || 'runtime/src/drivers.rs',
-        status: primaryEvi.validator_result || 'CONFIRMED',
-        extraInfo: 'Deterministic Reproducer Proof',
-        rawData: primaryEvi,
-        isSelected: selectedNode?.id === eviId,
-        onSelect: selectHandler
-      }
-    })
-    newEdges.push({
-      id: `${toolId}->${eviId}`,
-      source: toolId, target: eviId,
-      label: 'EVIDENCE_PRODUCED',
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#14b8a6' },
-      style: { stroke: '#14b8a6', strokeWidth: 1.8 }
-    })
-
-    // 10. VALIDATOR Node
-    const valId = 'node-validator'
-    newNodes.push({
-      id: valId,
-      type: 'workflowNode',
-      position: { x: 300, y: 1240 },
-      data: {
-        nodeType: 'validator',
-        title: 'VALIDATOR',
-        subtitle: 'Invariant Verification',
-        status: 'CONFIRMED',
-        extraInfo: 'Exit Code 0 Verified',
-        rawData: { validator_type: 'INVARIANT_RUNNER', verdict: 'CONFIRMED' },
-        isSelected: selectedNode?.id === valId,
-        onSelect: selectHandler
-      }
-    })
-    newEdges.push({
-      id: `${eviId}->${valId}`,
-      source: eviId, target: valId,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#0d9488' },
-      style: { stroke: '#0d9488', strokeWidth: 1.8 }
-    })
-
-    // 11. FINDING Node
-    const primaryFind = data.findings[0] || {
-      display_id: 'PROJ-001-VUL-001',
-      hypothesis: 'Locality check bypass in mailbox dispatcher',
-      severity: 'HIGH',
-      state: 'CONFIRMED'
-    }
-    const findId = 'node-finding-primary'
-    newNodes.push({
-      id: findId,
-      type: 'workflowNode',
-      position: { x: 300, y: 1400 },
-      data: {
-        nodeType: 'finding',
-        title: primaryFind.display_id || 'PROJ-001-VUL-001',
-        subtitle: primaryFind.hypothesis?.slice(0, 32) || 'Locality check bypass',
-        status: primaryFind.state || 'CONFIRMED',
-        severity: primaryFind.severity || 'HIGH',
-        extraInfo: 'Dossier & Trace Linked',
-        rawData: primaryFind,
-        isSelected: selectedNode?.id === findId,
-        onSelect: selectHandler
-      }
-    })
-    newEdges.push({
-      id: `${valId}->${findId}`,
-      source: valId, target: findId,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#ef4444' },
-      style: { stroke: '#ef4444', strokeWidth: 2 }
-    })
-
-    // 12. CLOSURE Node
-    const closureId = 'node-closure'
-    newNodes.push({
-      id: closureId,
-      type: 'workflowNode',
-      position: { x: 300, y: 1560 },
-      data: {
-        nodeType: 'closure',
-        title: 'VERIFICATION CLOSURE',
-        subtitle: 'Signoff Readiness: 66.7%',
-        status: 'READY',
-        extraInfo: 'Formal Security Invariant Signoff',
-        rawData: { coverage_pct: 66.7, findings_confirmed: 1 },
-        isSelected: selectedNode?.id === closureId,
-        onSelect: selectHandler
-      }
-    })
-    newEdges.push({
-      id: `${findId}->${closureId}`,
-      source: findId, target: closureId,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#eab308' },
-      style: { stroke: '#eab308', strokeWidth: 2 }
-    })
 
     setNodes(newNodes)
     setEdges(newEdges)
-  }, [data, statusFilter, searchQuery, expandedFiles, selectedNode])
+  }, [data, statusFilter, searchQuery, expandedFiles, expandedDeps, selectedNode])
 
   // Count metrics for live progress strip (Section 59)
   const runningTask = data.tasks.find(t => t.status === 'RUNNING') || data.tasks[0]
   const completedCount = data.tasks.filter(t => ['COMPLETED', 'SUCCEEDED'].includes(t.status)).length
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: '#090d16' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: '#13131f' }}>
       
       {/* ── Top Bar: Header & Live Progress Strip (Section 59) ───────────────── */}
       <div style={{
@@ -753,7 +937,7 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
       <div style={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
         
         {/* React Flow Canvas */}
-        <div style={{ flex: 1, height: '100%', minHeight: 0, background: '#090d16' }}>
+        <div style={{ flex: 1, height: '100%', minHeight: 0, background: '#13131f' }}>
           {loading && !nodes.length ? (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
               <Spinner size={28} />
@@ -766,19 +950,12 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
               onEdgesChange={onEdgesChange}
               nodeTypes={customNodeTypes}
               fitView
-              fitViewOptions={{ padding: 0.2 }}
+              fitViewOptions={{ padding: 0.3, includeHiddenNodes: false }}
               minZoom={0.2}
               maxZoom={1.5}
             >
-              <Background color="#1e293b" gap={20} size={1} />
-              <Controls style={{ background: '#0f172a', borderColor: '#334155', color: '#f8fafc' }} />
-              <MiniMap
-                nodeColor={(n) => {
-                  const t = n.data?.nodeType
-                  return NODE_CONFIG[t]?.border || '#3b82f6'
-                }}
-                style={{ background: '#0b1120', border: '1px solid #1e293b' }}
-              />
+              <Background variant="dots" color="#2a2a40" gap={24} size={1.5} />
+              <Controls style={{ background: '#1c1c2b', borderColor: '#334155', color: '#f8fafc' }} />
             </ReactFlow>
           )}
         </div>
