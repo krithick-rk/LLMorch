@@ -50,6 +50,7 @@ from api.routers import (
     context_fabric,
     projects,
     debug,
+    comma,
 )
 
 # ─── App ──────────────────────────────────────────────────────────────────────
@@ -110,6 +111,7 @@ app.include_router(policies.router)
 app.include_router(context_fabric.router)
 app.include_router(projects.router)
 app.include_router(debug.router)
+app.include_router(comma.router)
 
 
 
@@ -341,7 +343,24 @@ async def startup():
     print("  (pass as X-Session-Token header, or omit for local access)")
     print("=" * 60)
 
+    # Initialize sequence tables & verify foreign key integrity
+    from history.database import get_db_path, DatabaseService
+    from history.id_service import IdService
+    try:
+        db = DatabaseService(get_db_path())
+        with db.get_connection() as conn:
+            IdService.ensure_sequence_table(conn)
+    except Exception as e:
+        print(f"[STARTUP] Sequence table initialization note: {e}")
+
+    # Start authoritative task scheduler background worker
+    from scheduler.scheduler import task_scheduler
+    task_scheduler.start()
+
 
 @app.on_event("shutdown")
 async def shutdown():
+    from scheduler.scheduler import task_scheduler
+    task_scheduler.stop()
     print("[LLMorch API] Shutting down.")
+

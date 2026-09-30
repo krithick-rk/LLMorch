@@ -1,1 +1,0 @@
-[2026-09-29T09:41:48.809824+00:00] [INFO] Execution exit=0 dur=10.3ms: yosys -V | {"tool_id": "yosys", "task_id": "task-aab9e3f6", "command": "yosys -V", "exit_code": 0, "duration_ms": 10.288, "stdout": "Yosys 0.66+181 (git sha1 afe6b18f2, GNU /usr/bin/c++ 15.2.0)\n", "stderr": null}

@@ -243,6 +243,10 @@ class FindingSummary(BaseModel):
     affected_component: Optional[str] = None
     requires_parent_context: bool = False
     context_explanation: Optional[str] = None
+    poc_available: bool = False
+    poc_command: Optional[str] = None
+    duplicate_of_id: Optional[str] = None
+    has_duplicates: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

@@ -7,6 +7,7 @@ from schemas.task import Task
 from .failover import FailoverEngine
 from .model_router import ModelRouter
 from .agent_switcher import AgentSwitcher
+from .scheduler import TaskScheduler, task_scheduler
 
 
 class BaseScheduler:
@@ -15,4 +16,5 @@ class BaseScheduler:
         return True
 
 
-__all__ = ["BaseScheduler", "FailoverEngine", "ModelRouter", "AgentSwitcher"]
+__all__ = ["BaseScheduler", "FailoverEngine", "ModelRouter", "AgentSwitcher", "TaskScheduler", "task_scheduler"]
+

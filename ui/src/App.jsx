@@ -34,6 +34,7 @@ import ProjectHomePage from './components/ProjectHomePage'
 import MasterSessionPage from './components/MasterSessionPage'
 import DiagnosticsDrawer from './components/DiagnosticsDrawer'
 import AgenticWorkflowPage from './components/AgenticWorkflow/AgenticWorkflowPage'
+import CommaAssistant from './components/CommaAssistant'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -888,7 +889,7 @@ function HypothesisPanelPage({ refreshSignal }) {
 
 // ─── Page: Evidence Viewer ────────────────────────────────────────────────────
 
-function EvidenceViewerPage({ refreshSignal, activeProject, onNavigate }) {
+function EvidenceViewerPage({ refreshSignal, activeProject, onNavigate, selectedEvidenceId }) {
   const [list, setList] = useState(null)
   const [selected, setSelected] = useState(null)
   const [detail, setDetail] = useState(null)
@@ -899,21 +900,41 @@ function EvidenceViewerPage({ refreshSignal, activeProject, onNavigate }) {
     if (activeProject?.project_id) params.project_id = activeProject.project_id
     const e = await api.evidence(params)
     setList(e)
-    if (e.items && e.items.length > 0 && !selected) {
-      const first = e.items[0]
-      setSelected(first.evidence_id)
-      const d = await api.evidenceItem(first.evidence_id)
-      setDetail(d)
+    if (e.items && e.items.length > 0) {
+      const targetId = selectedEvidenceId || selected
+      let target = null
+      if (targetId) {
+        target = e.items.find(x => x.evidence_id === targetId || x.display_id === targetId)
+      }
+      if (!target && !selected) {
+        target = e.items[0]
+      }
+      if (target) {
+        setSelected(target.evidence_id)
+        const d = await api.evidenceItem(target.evidence_id)
+        setDetail(d)
+      } else if (targetId) {
+        setSelected(targetId)
+        api.evidenceItem(targetId).then(setDetail).catch(() => {})
+      }
     }
-  }, [activeProject?.project_id, selected])
+  }, [activeProject?.project_id, selected, selectedEvidenceId])
 
   useEffect(() => { load() }, [load, refreshSignal])
+
+  useEffect(() => {
+    if (selectedEvidenceId) {
+      setSelected(selectedEvidenceId)
+      api.evidenceItem(selectedEvidenceId).then(setDetail).catch(() => {})
+    }
+  }, [selectedEvidenceId])
 
   const selectEvidence = async (e) => {
     setSelected(e.evidence_id)
     const d = await api.evidenceItem(e.evidence_id)
     setDetail(d)
   }
+
 
   if (!list) return <Spinner />
 
@@ -1347,26 +1368,46 @@ function FindingDossierPage({ refreshSignal, activeProject, onNavigate }) {
         </div>
       </div>
 
-      {!selected ? (
-        <>
-          {findings.items.length === 0
-            ? <EmptyState icon="📂" msg="No findings yet." />
-            : (
-              <table className="data-table" style={{background:'var(--bg-card)',borderRadius:'var(--radius-lg)'}}>
-                <thead><tr><th>Finding ID</th><th>Hypothesis</th><th>Scope Context</th><th>State</th><th>Severity</th><th>Created</th></tr></thead>
-                <tbody>
-                  {findings.items.map(f => (
-                    <tr key={f.finding_id} onClick={() => openDossier(f)} style={{cursor:'pointer'}}>
+      <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 520px' : '1fr', gap: 16, alignItems: 'start' }}>
+        {/* Left Column: Master Findings Table */}
+        <div style={{ minWidth: 0 }}>
+          {findings.items.length === 0 ? (
+            <EmptyState icon="📂" msg="No findings yet." />
+          ) : (
+            <table className="data-table" style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)' }}>
+              <thead>
+                <tr>
+                  <th>Finding ID</th>
+                  <th>Hypothesis</th>
+                  <th>Scope</th>
+                  <th>State</th>
+                  <th>Severity</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {findings.items.map(f => {
+                  const isSel = selected?.finding_id === f.finding_id
+                  return (
+                    <tr
+                      key={f.finding_id}
+                      onClick={() => openDossier(f)}
+                      style={{
+                        cursor: 'pointer',
+                        background: isSel ? 'rgba(59, 130, 246, 0.08)' : undefined,
+                        borderLeft: isSel ? '3px solid var(--accent-blue)' : '3px solid transparent'
+                      }}
+                    >
                       <td><Mono style={{ fontWeight: 600, color: 'var(--accent-blue)' }}>{f.display_id || shortId(f.finding_id)}</Mono></td>
-                      <td style={{maxWidth:'300px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.hypothesis}</td>
+                      <td style={{ maxWidth: selected ? '220px' : '360px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.hypothesis}>{f.hypothesis}</td>
                       <td>
                         {f.requires_parent_context ? (
                           <span style={{ fontSize: 10, padding: '2px 6px', background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', borderRadius: 3, fontWeight: 600 }}>
-                            REQUIRES PARENT REPO
+                            PARENT
                           </span>
                         ) : (
                           <span style={{ fontSize: 10, padding: '2px 6px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: 3, fontWeight: 600 }}>
-                            LOCAL EVIDENCE
+                            LOCAL
                           </span>
                         )}
                       </td>
@@ -1374,209 +1415,158 @@ function FindingDossierPage({ refreshSignal, activeProject, onNavigate }) {
                       <td>{f.severity || '—'}</td>
                       <td className="text-muted">{fmt(f.created_at)}</td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            )
-          }
-        </>
-      ) : (
-        <div>
-          <div className="flex-center gap-8 mb-16">
-            <button className="btn btn-secondary btn-sm" onClick={() => setSelected(null)}>← All Findings</button>
-            <Mono style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent-blue)' }}>
-              {selected.display_id || selected.finding_id}
-            </Mono>
-          </div>
-
-          {/* Clickable Full Traceability Chain (Section 24 & 56) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 4, marginBottom: 16, fontSize: 11, overflowX: 'auto', flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 700, color: 'var(--accent-blue)', marginRight: 4 }}>TRACE:</span>
-            {selected.trace && selected.trace.length > 0 ? (
-              selected.trace.map((step, idx) => (
-                <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  {idx > 0 && <span style={{ color: 'var(--text-muted)' }}>→</span>}
-                  <span
-                    className={`badge ${step.step === 'FINDING' ? 'badge-ready' : (step.step === 'EVIDENCE' ? 'badge-warning' : (step.step === 'TASK' ? 'badge-info' : 'badge-secondary'))}`}
-                    style={{ cursor: step.id ? 'pointer' : 'default', padding: '3px 7px' }}
-                    title={`Click to inspect ${step.step}: ${step.label}`}
-                    onClick={() => {
-                      if (!onNavigate) return
-                      if (step.type === 'task') onNavigate('task', { entityId: step.id })
-                      else if (step.type === 'evidence') onNavigate('evidence', { entityId: step.id })
-                      else if (step.type === 'agent') onNavigate('agents')
-                      else if (step.type === 'plan' || step.type === 'workpackage') onNavigate('verification-plan')
-                    }}
-                  >
-                    <strong style={{ fontSize: 10, opacity: 0.7, marginRight: 3 }}>{step.step}:</strong> {step.label}
-                  </span>
-                </span>
-              ))
-            ) : (
-              <>
-                <span className="badge badge-ready">{selected.display_id || shortId(selected.finding_id)}</span>
-                <span>→</span>
-                <span className="badge badge-secondary">{selected.plan_display_id || 'PLAN-001 V1'}</span>
-                <span>→</span>
-                <span className="badge badge-secondary">{selected.work_package_display_id || 'WP-001'}</span>
-                <span>→</span>
-                <span
-                  className="badge badge-info"
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => onNavigate && onNavigate('task', { entityId: selected.task_id })}
-                >
-                  Task: {selected.task_display_id || (selected.task_id ? shortId(selected.task_id) : 'TASK-001')}
-                </span>
-                <span>→</span>
-                <span className="badge badge-secondary">{selected.attempt_display_id || 'ATT-001'}</span>
-                <span>→</span>
-                <span className="badge badge-secondary" style={{ cursor: 'pointer' }} onClick={() => onNavigate && onNavigate('agents')}>AGY</span>
-                <span>→</span>
-                <span className="mono" style={{ fontSize: 11 }}>runtime/src/drivers.rs</span>
-                <span>→</span>
-                <span className="mono" style={{ fontSize: 11 }}>rust_source_inspector</span>
-                <span>→</span>
-                <span className="badge badge-warning" style={{ cursor: 'pointer' }} onClick={() => onNavigate && onNavigate('evidence')}>
-                  {selected.evidence?.[0]?.display_id || (selected.evidence?.[0]?.evidence_id ? shortId(selected.evidence[0].evidence_id) : 'EVIDENCE')}
-                </span>
-                <span>→</span>
-                <span className="badge badge-success">VALIDATOR ({selected.state || 'CONFIRMED'})</span>
-                <span>→</span>
-                <span className="badge badge-ready">{selected.display_id || shortId(selected.finding_id)}</span>
-              </>
-            )}
-          </div>
-
-          {selected.requires_parent_context && (
-            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '12px 16px', borderRadius: 4, marginBottom: 16 }}>
-              <div style={{ fontWeight: 700, color: '#b45309', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>⚠️</span> Finding requires parent-repository context
-              </div>
-              <div style={{ fontSize: 12, color: '#78350f', marginTop: 4 }}>
-                {selected.context_explanation || "This finding references hardware register semantics or interfaces defined outside the selected runtime directory."}
-              </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button className="btn btn-secondary btn-sm" onClick={() => alert("Local scope retained. Finding documented with local firmware evidence.")}>
-                  [Analyze Selected Scope Only]
-                </button>
-                <button className="btn btn-primary btn-sm" onClick={async () => {
-                  try {
-                    await api.updateProjectScope(activeProject.project_id, { action: 'EXPAND_TO_PARENT' });
-                    alert("Scope expanded to parent repository! Refreshing...");
-                    window.location.reload();
-                  } catch (err) {
-                    alert("Scope expansion note: " + err.message);
-                  }
-                }}>
-                  [Expand to Parent Repository]
-                </button>
-                <button className="btn btn-secondary btn-sm" onClick={() => alert("Required dependencies: SoC Interface RTL, Caliptra Drivers, Auth Manifest.")}>
-                  [Inspect Required Dependencies]
-                </button>
-              </div>
-            </div>
+                  )
+                })}
+              </tbody>
+            </table>
           )}
+        </div>
 
-          <div className="panel-row">
-            <div style={{flex:2}}>
-              {/* Verdict */}
-              <div className="dossier-verdict" style={VERDICT_STYLES[selected.state] || {background:'var(--bg-card)',color:'var(--text-primary)'}}>
-                {selected.state}
+        {/* Right Column: Persistent Side Inspector */}
+        {selected && (
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
+            padding: 16, maxHeight: 'calc(100vh - 220px)', overflowY: 'auto', position: 'sticky', top: 16
+          }}>
+            <div className="flex-center gap-8 mb-16" style={{ justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent-blue)', textTransform: 'uppercase' }}>
+                  DOSSIER INSPECTOR
+                </span>
+                <Mono style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {selected.display_id || selected.finding_id}
+                </Mono>
               </div>
-              <p style={{textAlign:'center',fontSize:'11px',color:'var(--text-muted)',marginBottom:'16px'}}>
-                Final state is authoritative — determined by the validator, not the browser
-              </p>
-
-              <div className="card">
-                <div className="card-header"><div className="card-title">💡 Hypothesis</div></div>
-                <p style={{fontSize:'13px',color:'var(--text-secondary)',lineHeight:'1.6'}}>{selected.hypothesis}</p>
-              </div>
-
-              {/* Evidence */}
-              {evidence && (
-                <div className="card">
-                  <div className="card-header"><div className="card-title">🔐 Evidence ({evidence.total})</div></div>
-                  {evidence.items.length === 0
-                    ? <div className="text-muted">No evidence records linked.</div>
-                    : evidence.items.map(e => (
-                      <div key={e.evidence_id} className="evidence-block">
-                        <div className="flex-center gap-8 mb-8">
-                          <span className="trust-evidence">■ EVIDENCE</span>
-                          <Mono>{shortId(e.evidence_id)}</Mono>
-                          <span className="text-muted">{e.source_tool || '—'}</span>
-                        </div>
-                        <div className="hash-display"><span className="hash-label">Canonical</span>{e.canonical_hash || '—'}</div>
-                      </div>
-                    ))
-                  }
-                </div>
-              )}
-
-              {/* Reproducers */}
-              {reproducers && reproducers.items.length > 0 && (
-                <div className="card">
-                  <div className="card-header"><div className="card-title">🔄 Reproducers ({reproducers.total})</div></div>
-                  {reproducers.items.map(r => (
-                    <div key={r.reproducer_id} style={{marginBottom:'6px',padding:'8px',background:'var(--bg-base)',borderRadius:'4px',fontSize:'12px'}}>
-                      <Mono>{shortId(r.reproducer_id)}</Mono>
-                      <StatusBadge status={r.status} />
-                      {r.manifest_hash && <div className="text-muted" style={{marginTop:'4px',fontSize:'11px'}}>Manifest: {r.manifest_hash.slice(0,16)}…</div>}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Validations */}
-              {validations && validations.items.length > 0 && (
-                <div className="card">
-                  <div className="card-header"><div className="card-title">✅ Validations ({validations.total})</div></div>
-                  {validations.items.map(v => (
-                    <div key={v.validation_id} style={{marginBottom:'6px',padding:'8px',background:'var(--bg-base)',borderRadius:'4px',fontSize:'12px'}}>
-                      <span className="trust-validation">■ VALIDATION</span>{' '}
-                      <VerdictBadge verdict={v.verdict} />{' '}
-                      <span className="text-muted">{v.validator_name || '—'} · {v.replay_count} replays · {v.determinism || '—'}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <button className="btn btn-secondary btn-sm" onClick={() => setSelected(null)}>✕ Close</button>
             </div>
+
+            {/* Clickable Full Traceability Chain */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 4, marginBottom: 16, fontSize: 11, overflowX: 'auto', flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 700, color: 'var(--accent-blue)', marginRight: 4 }}>TRACE:</span>
+              <span className="badge badge-ready">{selected.display_id || shortId(selected.finding_id)}</span>
+              <span>→</span>
+              <span
+                className="badge badge-info"
+                style={{ cursor: 'pointer' }}
+                onClick={() => onNavigate && onNavigate('task', { entityId: selected.task_id })}
+              >
+                Task: {selected.task_display_id || (selected.task_id ? shortId(selected.task_id) : 'TASK')}
+              </span>
+              <span>→</span>
+              <span
+                className="badge badge-warning"
+                style={{ cursor: 'pointer' }}
+                title="Open exact evidence record"
+                onClick={() => {
+                  const evId = evidence?.items?.[0]?.evidence_id || selected.evidence?.[0]?.evidence_id
+                  if (evId && onNavigate) onNavigate('evidence', { entityId: evId })
+                }}
+              >
+                Evidence: {evidence?.items?.[0]?.display_id || selected.evidence?.[0]?.display_id || 'EVIDENCE'}
+              </span>
+              <span>→</span>
+              <span className="badge badge-success">VALIDATOR ({selected.state || 'CONFIRMED'})</span>
+            </div>
+
+            {selected.requires_parent_context && (
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '10px 12px', borderRadius: 4, marginBottom: 16 }}>
+                <div style={{ fontWeight: 700, color: '#b45309', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>⚠️</span> Finding requires parent-repository context
+                </div>
+                <div style={{ fontSize: 11, color: '#78350f', marginTop: 4 }}>
+                  {selected.context_explanation || "References hardware register semantics defined outside selected directory."}
+                </div>
+              </div>
+            )}
+
+            {/* Verdict */}
+            <div className="dossier-verdict mb-16" style={VERDICT_STYLES[selected.state] || { background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
+              {selected.state}
+            </div>
+
+            {/* Hypothesis */}
+            <div className="card mb-16">
+              <div className="card-header"><div className="card-title">💡 Hypothesis</div></div>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.6', margin: 0 }}>{selected.hypothesis}</p>
+            </div>
+
+            {/* Evidence Links (Section 24 & 56: Clickable with exact ID) */}
+            {evidence && (
+              <div className="card mb-16">
+                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div className="card-title">🔐 Evidence Records ({evidence.total})</div>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Click to view record</span>
+                </div>
+                {evidence.items.length === 0
+                  ? <div className="text-muted" style={{ padding: 12, fontSize: 12 }}>No evidence records linked.</div>
+                  : evidence.items.map(e => (
+                    <div
+                      key={e.evidence_id}
+                      className="evidence-block"
+                      style={{ cursor: 'pointer', transition: 'background 0.15s ease' }}
+                      title={`Inspect exact evidence record ${e.display_id || e.evidence_id}`}
+                      onClick={() => onNavigate && onNavigate('evidence', { entityId: e.evidence_id })}
+                    >
+                      <div className="flex-center gap-8 mb-8">
+                        <span className="trust-evidence">■ EVIDENCE</span>
+                        <Mono style={{ fontWeight: 600, color: 'var(--accent-blue)' }}>{e.display_id || shortId(e.evidence_id)}</Mono>
+                        <span className="text-muted" style={{ fontSize: 11 }}>{e.source_tool || '—'}</span>
+                      </div>
+                      <div className="hash-display"><span className="hash-label">Canonical</span>{e.canonical_hash || '—'}</div>
+                    </div>
+                  ))
+                }
+              </div>
+            )}
+
+            {/* Reproducers */}
+            {reproducers && reproducers.items.length > 0 && (
+              <div className="card mb-16">
+                <div className="card-header"><div className="card-title">🔄 Reproducers ({reproducers.total})</div></div>
+                {reproducers.items.map(r => (
+                  <div key={r.reproducer_id} style={{ marginBottom: '6px', padding: '8px', background: 'var(--bg-base)', borderRadius: '4px', fontSize: '11px' }}>
+                    <Mono>{shortId(r.reproducer_id)}</Mono>
+                    <StatusBadge status={r.status} />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Validations */}
+            {validations && validations.items.length > 0 && (
+              <div className="card mb-16">
+                <div className="card-header"><div className="card-title">✅ Validations ({validations.total})</div></div>
+                {validations.items.map(v => (
+                  <div key={v.validation_id} style={{ marginBottom: '6px', padding: '8px', background: 'var(--bg-base)', borderRadius: '4px', fontSize: '11px' }}>
+                    <span className="trust-validation">■ VALIDATION</span>{' '}
+                    <VerdictBadge verdict={v.verdict} />{' '}
+                    <span className="text-muted">{v.validator_name || '—'} · {v.replay_count} replays</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Analyst feedback */}
-            <div style={{flex:1}}>
-              <div className="card">
-                <div className="card-header"><div className="card-title">🗣️ Analyst Feedback</div></div>
-                <p style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'10px'}}>
-                  Submit structured feedback. Does not modify the finding state — creates an auditable record only.
-                </p>
-                <select className="input" style={{width:'100%',marginBottom:'8px'}} value={feedbackLabel} onChange={e => setFeedbackLabel(e.target.value)}>
-                  <option value="">— Select label —</option>
-                  {FEEDBACK_LABELS.map(l => <option key={l} value={l}>{l.replace(/_/g,' ')}</option>)}
-                </select>
-                <textarea
-                  className="input"
-                  placeholder="Optional comment…"
-                  value={feedbackComment}
-                  onChange={e => setFeedbackComment(e.target.value)}
-                  style={{width:'100%',minHeight:'80px',resize:'vertical',marginBottom:'8px'}}
-                />
-                <button className="btn btn-primary" style={{width:'100%'}} onClick={submitFeedback} disabled={!feedbackLabel}>Submit Feedback</button>
-                {feedbackMsg && <div style={{marginTop:'8px',fontSize:'12px',color:'var(--accent-green)'}}>{feedbackMsg}</div>}
-              </div>
-
-              <div className="card">
-                <div className="card-header"><div className="card-title">ℹ️ Trust Model</div></div>
-                <div style={{fontSize:'12px',lineHeight:'2'}}>
-                  <div><span className="trust-llm">HYPOTHESIS</span> = agent claim</div>
-                  <div><span className="trust-observation">OBSERVATION</span> = tool result</div>
-                  <div><span className="trust-evidence">EVIDENCE</span> = execution artifact</div>
-                  <div><span className="trust-critic">CRITIC</span> = challenge</div>
-                  <div><span className="trust-validation">VALIDATION</span> = authoritative</div>
-                </div>
-              </div>
+            <div className="card mb-16">
+              <div className="card-header"><div className="card-title">🗣️ Analyst Feedback</div></div>
+              <select className="input" style={{ width: '100%', marginBottom: '8px' }} value={feedbackLabel} onChange={e => setFeedbackLabel(e.target.value)}>
+                <option value="">— Select label —</option>
+                {FEEDBACK_LABELS.map(l => <option key={l} value={l}>{l.replace(/_/g, ' ')}</option>)}
+              </select>
+              <textarea
+                className="input"
+                placeholder="Optional comment…"
+                value={feedbackComment}
+                onChange={e => setFeedbackComment(e.target.value)}
+                style={{ width: '100%', minHeight: '60px', resize: 'vertical', marginBottom: '8px' }}
+              />
+              <button className="btn btn-primary" style={{ width: '100%' }} onClick={submitFeedback} disabled={!feedbackLabel}>Submit Feedback</button>
+              {feedbackMsg && <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--accent-green)' }}>{feedbackMsg}</div>}
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
     </div>
   )
 }
@@ -1839,6 +1829,7 @@ export default function App() {
   const [activeProject, setActiveProject] = useState(null)
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false)
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
+  const [isCommaOpen, setIsCommaOpen] = useState(false)
 
   const handleOpenCreateTask = useCallback((ctx = null) => {
     setCreateTaskContext(ctx)
@@ -2308,6 +2299,18 @@ export default function App() {
             🛠 Diagnostics
           </button>
 
+          <button
+            id="btn-comma-assistant"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setIsCommaOpen(true)}
+            title="COMMA Autonomous Engineering Assistant (Powered by AGY)"
+            style={{ display: 'flex', alignItems: 'center', gap: 5 }}
+          >
+            <span style={{ color: 'var(--amber, #f59e0b)', fontSize: 13 }}>⚡</span>
+            <span style={{ fontWeight: 600 }}>COMMA</span>
+            <span className="badge badge-success mono" style={{ fontSize: 9, padding: '1px 5px' }}>AGY</span>
+          </button>
+
           {!currentRun && (
             <button className="btn btn-primary btn-sm" onClick={() => setPage('target-repo')}>
               New Investigation
@@ -2368,6 +2371,27 @@ export default function App() {
           onClose={() => setIsDiagnosticsOpen(false)}
           activeProject={activeProject}
           currentRun={currentRun}
+        />
+      )}
+      {isCommaOpen && (
+        <CommaAssistant
+          isOpen={isCommaOpen}
+          onClose={() => setIsCommaOpen(false)}
+          activeProject={activeProject}
+          currentPage={page}
+          currentRun={currentRun}
+          onOpenCreateTask={(proposal) => {
+            setIsCommaOpen(false)
+            setCreateTaskContext({
+              goal: proposal.objective,
+              objective: proposal.objective,
+              target: proposal.target_files?.[0] || 'hw/fpga/src/caliptra_wrapper_top.sv',
+              agent: proposal.agent_id || 'agent-agy-01',
+              method: proposal.method || 'Auto',
+              tool: proposal.tools?.[0] || 'verilator',
+            })
+            setIsCreateTaskOpen(true)
+          }}
         />
       )}
 
@@ -2567,7 +2591,17 @@ export default function App() {
             {rtStatus.isConnected ? '● CONNECTED' : (rtStatus.state === 'CONNECTING' || rtStatus.state === 'RECONNECTING' ? `◌ ${rtStatus.state}` : `○ ${rtStatus.state}`)}
           </span>
         </div>
-        <div className="bsb-item" style={{ marginLeft: 'auto' }}>
+        <div className="bsb-item" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            id="btn-comma-bsb"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setIsCommaOpen(true)}
+            style={{ fontSize: 10, padding: '2px 8px', display: 'flex', alignItems: 'center', gap: 4 }}
+            title="Open COMMA Autonomous Engineering Assistant"
+          >
+            <span style={{ color: 'var(--amber, #f59e0b)' }}>⚡</span>
+            <span>COMMA</span>
+          </button>
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => {

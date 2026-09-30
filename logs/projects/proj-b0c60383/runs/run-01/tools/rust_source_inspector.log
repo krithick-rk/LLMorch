@@ -1,1 +1,0 @@
-[2026-09-29T11:48:31.015824+00:00] [INFO] Execution exit=0 dur=45.2ms: ripgrep privilege | {"tool_id": "rust_source_inspector", "task_id": "task-123", "command": "ripgrep privilege", "exit_code": 0, "duration_ms": 45.2, "stdout": "Found 2 occurrences", "stderr": null}

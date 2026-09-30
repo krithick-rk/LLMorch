@@ -31,6 +31,48 @@ from repository_intelligence.complexity import (
     parse_intent_depth, evaluate_bucket_evidence, get_task_limit_for_tier
 )
 from repository_intelligence.rust_security_scanner import scan_rust_security_surfaces
+import os
+
+
+def _discover_hw_files(repo_path: str) -> Dict[str, List[str]]:
+    """Discovers real hardware, RTL, and config files and maps them to architectural categories."""
+    p = Path(repo_path)
+    res = {
+        "all_rtl": [],
+        "top_wrappers": [],
+        "registers": [],
+        "interconnect": [],
+        "clocks_resets": [],
+        "formal": [],
+        "configs": [],
+        "general": []
+    }
+    if not p.exists():
+        return res
+    for root, dirs, files in os.walk(p):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("target", "build", "petalinux_project", "images")]
+        for f in files:
+            ext = Path(f).suffix.lower()
+            rel = str(Path(root, f).relative_to(p))
+            if ext in (".sv", ".v", ".vh", ".svh", ".rdl"):
+                res["all_rtl"].append(rel)
+                f_lower = f.lower()
+                rel_lower = rel.lower()
+                if "top" in f_lower or "wrapper" in f_lower or "package" in f_lower:
+                    res["top_wrappers"].append(rel)
+                elif "reg" in f_lower or "rdl" in rel_lower:
+                    res["registers"].append(rel)
+                elif "axi" in f_lower or "ram" in f_lower or "intf" in f_lower or "sram" in f_lower:
+                    res["interconnect"].append(rel)
+                elif "clock" in f_lower or "reset" in f_lower or "icg" in f_lower:
+                    res["clocks_resets"].append(rel)
+                elif "formal" in rel_lower or "pc" in f_lower or "verilated" in rel_lower:
+                    res["formal"].append(rel)
+                else:
+                    res["general"].append(rel)
+            elif ext in (".toml", ".yaml", ".yml", ".json", ".hjson", ".core", ".f", ".vf") or f.lower().startswith("makefile"):
+                res["configs"].append(rel)
+    return res
 
 
 class Supervisor:
@@ -177,6 +219,8 @@ class Supervisor:
         work_packages: List[WorkPackage] = []
         proposed_questions: List[Dict[str, Any]] = []
 
+        hw_files = _discover_hw_files(repository_path)
+
         if is_firmware_target and discovered_surfaces:
             # Group by surface category into focused firmware work packages
             objs_by_title: Dict[str, List[VerificationObjective]] = {}
@@ -187,11 +231,22 @@ class Supervisor:
                 wp_id = f"wp-{uuid.uuid4().hex[:8]}"
                 est_tokens = 6000
                 est_seconds = 45
+                surf_files = [s.relative_path for s in discovered_surfaces if s.title == title]
+                target_f = surf_files[:3] if surf_files else (hw_files["all_rtl"][:2] if hw_files["all_rtl"] else ["src/main.rs"])
                 wp = WorkPackage(
                     package_id=wp_id,
                     plan_id=plan_id,
                     name=f"WP: {title}",
                     description=b_objs[0].statement,
+                    why_proposed=f"Firmware security surface identified in {target_f[0] if target_f else 'source tree'}.",
+                    method="Source Code Inspection & Deterministic Verification",
+                    tools=["rust_source_inspector", "reproducer_engine"],
+                    agents=["agent-agy-01", "agent-codex-01"],
+                    expected_evidence="Deterministic AST violation trace and compiler bounds check results",
+                    risks=["Parent repository hardware register contracts may alter execution path"],
+                    target_files=target_f,
+                    supporting_context=hw_files["configs"][:3],
+                    excluded_paths=["petalinux_project", "images", "target"],
                     bucket=b_objs[0].bucket,
                     role="Firmware Security Researcher",
                     objective_ids=[o.objective_id for o in b_objs],
@@ -238,11 +293,52 @@ class Supervisor:
 
                 cost_tier = CostTier.LIGHTWEIGHT if est_tokens < 30000 else (CostTier.MODERATE if est_tokens < 100000 else CostTier.EXPENSIVE)
 
+                # Map specific target files based on bucket
+                if bucket == SoCBucket.IP_BOUNDARY:
+                    wp_targets = hw_files["top_wrappers"][:3] or hw_files["all_rtl"][:2]
+                    wp_method = "Top-level Interface Lint & Elaboration"
+                    wp_tools = ["verilator", "yosys"]
+                    wp_why = "Verifies boundary pins, port widths, and bus interface encapsulation on top-level SoC wrapper."
+                elif bucket == SoCBucket.SECURITY:
+                    wp_targets = hw_files["registers"][:3] or hw_files["all_rtl"][:2]
+                    wp_method = "Hardware Register Access Control & State Security Analysis"
+                    wp_tools = ["yosys", "verilator"]
+                    wp_why = "Analyzes register address decoding, privileged lock states, and write-enable protections."
+                elif bucket == SoCBucket.INTERCONNECT:
+                    wp_targets = hw_files["interconnect"][:3] or hw_files["formal"][:2] or hw_files["all_rtl"][:2]
+                    wp_method = "Bus Protocol Conformance & Memory Interface Checking"
+                    wp_tools = ["verilator", "yosys"]
+                    wp_why = "Audits AXI4/AXI-Lite interconnect transactions, burst address boundaries, and parity/ECC logic."
+                elif bucket in (SoCBucket.RESETS, SoCBucket.CLOCKS):
+                    wp_targets = hw_files["clocks_resets"][:3] or hw_files["top_wrappers"][:2] or hw_files["all_rtl"][:2]
+                    wp_method = "Clock Gating & Asynchronous Reset Deassertion Lint"
+                    wp_tools = ["verilator", "yosys"]
+                    wp_why = "Ensures clean reset sequence release, clock domain integrity, and absence of glitch paths."
+                elif bucket in (SoCBucket.CONNECTIVITY, SoCBucket.CDC, SoCBucket.RDC):
+                    wp_targets = (hw_files["interconnect"] + hw_files["top_wrappers"])[:3] or hw_files["all_rtl"][:2]
+                    wp_method = "Cross-Domain Synchronization Analysis"
+                    wp_tools = ["verilator", "yosys"]
+                    wp_why = "Checks CDC/RDC synchronizer multi-flop chains and handshake protocols across clock domains."
+                else:
+                    wp_targets = hw_files["all_rtl"][:2] if hw_files["all_rtl"] else ["hw/src/caliptra_wrapper_top.sv"]
+                    wp_method = "Architectural Static Verification"
+                    wp_tools = ["verilator", "yosys"]
+                    wp_why = f"Audits structural correctness and ontological invariants for {b_def.name}."
+
                 wp = WorkPackage(
                     package_id=wp_id,
                     plan_id=plan_id,
                     name=f"WP: {b_def.name} Verification",
                     description=f"Bounded work package targeting {len(b_objs)} objectives under {b_def.name}",
+                    why_proposed=wp_why,
+                    method=wp_method,
+                    tools=wp_tools,
+                    agents=["agent-agy-01", "agent-codex-01"],
+                    expected_evidence=f"Deterministic {wp_tools[0]} syntax/lint logs, AST elaboration trace, and assertion results",
+                    risks=["Tool version variance", "Macro include path resolution"],
+                    target_files=wp_targets,
+                    supporting_context=hw_files["configs"][:3],
+                    excluded_paths=["petalinux_project", "images"],
                     bucket=bucket,
                     role=b_def.recommended_role,
                     objective_ids=[o.objective_id for o in b_objs],
@@ -290,6 +386,10 @@ class Supervisor:
             repository_path=repository_path,
             repository_name=repository_name,
             scope_description=intent_objective or f"Adaptive {tier.value} Verification Plan for {repository_name}",
+            target_scope="hw/" if hw_files["all_rtl"] else (repository_path or "source/"),
+            intent=intent_objective or ("Hardware security / RTL analysis" if hw_files["all_rtl"] else "Software / Firmware Security Analysis"),
+            why_files_selected=f"Identified {len(hw_files['all_rtl'])} hardware RTL files spanning FPGA wrappers, registers, AXI interconnects, and simulation testbenches." if hw_files["all_rtl"] else f"Identified security surfaces in {repository_name}.",
+            expected_output="Deterministic verification logs, tool exit codes, coverage assertions, and validated security findings.",
             status=PlanStatus.DRAFT,
             buckets_applicability=bucket_applicability,
             applicability_reasons=applicability_reasons,

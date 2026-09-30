@@ -38,20 +38,20 @@ function fmtK(num) {
 
 // ── Node styling and metadata ──────────────────────────────────────────────────
 const NODE_CONFIG = {
-  project:       { icon: '📁', label: 'PROJECT',       bg: '#0f172a', border: '#3b82f6', text: '#93c5fd' },
-  supervisor:    { icon: '🧠', label: 'SUPERVISOR',    bg: '#172554', border: '#60a5fa', text: '#bfdbfe' },
-  orchestrator:  { icon: '⚙️', label: 'ORCHESTRATOR',  bg: '#1e1b4b', border: '#8b5cf6', text: '#c4b5fd' },
-  workpackage:   { icon: '📦', label: 'WORKPACKAGE',   bg: '#064e3b', border: '#10b981', text: '#a7f3d0' },
-  task:          { icon: '⚡', label: 'TASK',          bg: '#1e293b', border: '#0284c7', text: '#7dd3fc' },
-  agent:         { icon: '🤖', label: 'AGENT',         bg: '#14532d', border: '#22c55e', text: '#86efac' },
-  handoff:       { icon: '⇄',  label: 'SCOPED HANDOFF', bg: '#4c1d95', border: '#a855f7', text: '#e9d5ff' },
-  tool:          { icon: '🔧', label: 'TOOL',          bg: '#312e81', border: '#6366f1', text: '#a5b4fc' },
-  file:          { icon: '📄', label: 'FILE',          bg: '#1f2937', border: '#64748b', text: '#cbd5e1' },
-  artifact:      { icon: '📜', label: 'ARTIFACT',      bg: '#3b0764', border: '#c084fc', text: '#f3e8ff' },
-  evidence:      { icon: '🔐', label: 'EVIDENCE',      bg: '#064e3b', border: '#14b8a6', text: '#99f6e4' },
-  validator:     { icon: '✅', label: 'VALIDATOR',     bg: '#042f2e', border: '#0d9488', text: '#5eead4' },
-  finding:       { icon: '🚨', label: 'FINDING',       bg: '#450a0a', border: '#ef4444', text: '#fca5a5' },
-  closure:       { icon: '🛡️', label: 'CLOSURE',       bg: '#18181b', border: '#eab308', text: '#fef08a' },
+  project:       { icon: '📁', label: 'PROJECT',       bg: '#ffffff', border: '#2563eb', text: '#1d4ed8' },
+  supervisor:    { icon: '🧠', label: 'SUPERVISOR',    bg: '#ffffff', border: '#3b82f6', text: '#2563eb' },
+  orchestrator:  { icon: '⚙️', label: 'ORCHESTRATOR',  bg: '#ffffff', border: '#7c3aed', text: '#6d28d9' },
+  workpackage:   { icon: '📦', label: 'WORKPACKAGE',   bg: '#ffffff', border: '#059669', text: '#047857' },
+  task:          { icon: '⚡', label: 'TASK',          bg: '#ffffff', border: '#0284c7', text: '#0369a1' },
+  agent:         { icon: '🤖', label: 'AGENT',         bg: '#ffffff', border: '#16a34a', text: '#15803d' },
+  handoff:       { icon: '⇄',  label: 'SCOPED HANDOFF', bg: '#ffffff', border: '#9333ea', text: '#7e22ce' },
+  tool:          { icon: '🔧', label: 'TOOL',          bg: '#ffffff', border: '#4f46e5', text: '#4338ca' },
+  file:          { icon: '📄', label: 'FILE',          bg: '#ffffff', border: '#64748b', text: '#334155' },
+  artifact:      { icon: '📜', label: 'ARTIFACT',      bg: '#ffffff', border: '#a855f7', text: '#7e22ce' },
+  evidence:      { icon: '🔐', label: 'EVIDENCE',      bg: '#ffffff', border: '#0d9488', text: '#0f766e' },
+  validator:     { icon: '✅', label: 'VALIDATOR',     bg: '#ffffff', border: '#0891b2', text: '#0e7490' },
+  finding:       { icon: '🚨', label: 'FINDING',       bg: '#ffffff', border: '#dc2626', text: '#b91c1c' },
+  closure:       { icon: '🛡️', label: 'CLOSURE',       bg: '#ffffff', border: '#d97706', text: '#b45309' },
 }
 
 // ── Custom Node Widget ────────────────────────────────────────────────────────
@@ -67,14 +67,14 @@ function CustomWorkflowNode({ data }) {
       style={{
         minWidth: 170,
         maxWidth: 240,
-        background: cfg.bg,
-        border: `1.5px solid ${isSelected ? '#38bdf8' : cfg.border}`,
+        background: '#ffffff',
+        border: `1.5px solid ${isSelected ? '#2563eb' : cfg.border}`,
         borderRadius: 8,
         padding: '10px 14px',
         boxShadow: isSelected
-          ? '0 0 0 2px #38bdf888, 0 8px 24px rgba(0,0,0,0.6)'
-          : '0 4px 12px rgba(0,0,0,0.3)',
-        color: '#f8fafc',
+          ? '0 0 0 2px rgba(37,99,235,0.3), 0 6px 18px rgba(37,99,235,0.15)'
+          : '0 2px 8px rgba(0,0,0,0.06)',
+        color: '#0f172a',
         cursor: 'pointer',
         position: 'relative',
         transition: 'all 0.2s ease',
@@ -109,27 +109,27 @@ function CustomWorkflowNode({ data }) {
         {data.status && (
           <span style={{
             fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
-            background: isRunning ? 'rgba(34, 197, 94, 0.2)' : (isWaiting ? 'rgba(234, 179, 8, 0.2)' : 'rgba(148, 163, 184, 0.2)'),
-            color: isRunning ? '#4ade80' : (isWaiting ? '#facc15' : '#94a3b8'),
-            border: `1px solid ${isRunning ? '#22c55e44' : (isWaiting ? '#eab30844' : '#64748b44')}`
+            background: isRunning ? 'rgba(34, 197, 94, 0.15)' : (isWaiting ? 'rgba(234, 179, 8, 0.15)' : 'rgba(100, 116, 139, 0.12)'),
+            color: isRunning ? '#15803d' : (isWaiting ? '#b45309' : '#475569'),
+            border: `1px solid ${isRunning ? '#86efac' : (isWaiting ? '#fde68a' : '#cbd5e1')}`
           }}>
             {data.status}
           </span>
         )}
       </div>
 
-      <div style={{ fontSize: 12, fontWeight: 600, color: '#f1f5f9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={data.title || data.label}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={data.title || data.label}>
         {data.title || data.label}
       </div>
 
       {data.subtitle && (
-        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3, fontFamily: 'var(--font-mono, monospace)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div style={{ fontSize: 10, color: '#64748b', marginTop: 3, fontFamily: 'var(--font-mono, monospace)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {data.subtitle}
         </div>
       )}
 
       {data.extraInfo && (
-        <div style={{ fontSize: 10, color: '#cbd5e1', marginTop: 4, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 4 }}>
+        <div style={{ fontSize: 10, color: '#475569', marginTop: 4, borderTop: '1px solid #f1f5f9', paddingTop: 4 }}>
           {data.extraInfo}
         </div>
       )}
@@ -139,6 +139,7 @@ function CustomWorkflowNode({ data }) {
   )
 }
 
+
 // ── n8n-Style Custom Nodes ────────────────────────────────────────────────────
 function TriggerNode({ data }) {
   const isSelected = data.isSelected
@@ -146,15 +147,15 @@ function TriggerNode({ data }) {
     <div
       onClick={() => data.onSelect && data.onSelect(data)}
       style={{
-        background: '#1f1f2e',
-        border: `1.5px solid ${isSelected ? '#38bdf8' : '#3a3a5c'}`,
+        background: '#ffffff',
+        border: `1.5px solid ${isSelected ? '#2563eb' : '#cbd5e1'}`,
         borderRadius: 12,
         padding: '12px 16px',
         minWidth: 140,
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
         boxShadow: isSelected
-          ? '0 0 0 2px #38bdf888, 0 8px 24px rgba(0,0,0,0.6)'
-          : '0 4px 16px rgba(0,0,0,0.5)',
+          ? '0 0 0 2px rgba(37,99,235,0.3), 0 4px 16px rgba(37,99,235,0.15)'
+          : '0 2px 8px rgba(0,0,0,0.06)',
         cursor: 'pointer',
         transition: 'all 0.2s ease',
         fontFamily: 'var(--font-sans, -apple-system, sans-serif)',
@@ -164,11 +165,11 @@ function TriggerNode({ data }) {
         <span style={{ fontSize: 18, color: '#f59e0b' }}>⚡</span>
         <span style={{ fontSize: 20 }}>💬</span>
       </div>
-      <div style={{ fontSize: 11, color: '#e2e8f0', textAlign: 'center', fontWeight: 600 }}>
+      <div style={{ fontSize: 11, color: '#0f172a', textAlign: 'center', fontWeight: 600 }}>
         {data.label || 'When task message received'}
       </div>
       {data.subtitle && (
-        <div style={{ fontSize: 9, color: '#94a3b8', textAlign: 'center' }}>
+        <div style={{ fontSize: 9, color: '#64748b', textAlign: 'center' }}>
           {data.subtitle}
         </div>
       )}
@@ -183,14 +184,14 @@ function TaskPlannerNode({ data }) {
     <div
       onClick={() => data.onSelect && data.onSelect(data)}
       style={{
-        background: '#252535',
-        border: `1.5px solid ${isSelected ? '#38bdf8' : '#5b5bd6'}`,
+        background: '#ffffff',
+        border: `1.5px solid ${isSelected ? '#2563eb' : '#5b5bd6'}`,
         borderRadius: 12,
         padding: '14px 20px',
         minWidth: 220,
         boxShadow: isSelected
-          ? '0 0 0 2px #38bdf888, 0 8px 24px rgba(0,0,0,0.6)'
-          : '0 0 0 1px #5b5bd622, 0 8px 24px rgba(0,0,0,0.6)',
+          ? '0 0 0 2px rgba(37,99,235,0.3), 0 6px 18px rgba(37,99,235,0.15)'
+          : '0 2px 10px rgba(91,91,214,0.12)',
         position: 'relative',
         cursor: 'pointer',
         transition: 'all 0.2s ease',
@@ -201,13 +202,13 @@ function TaskPlannerNode({ data }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ fontSize: 22 }}>🤖</span>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#f8fafc' }}>Task Planner</div>
-          <div style={{ fontSize: 10, color: '#94a3b8' }}>{data.subtitle}</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Task Planner</div>
+          <div style={{ fontSize: 10, color: '#64748b' }}>{data.subtitle}</div>
         </div>
         <button
           style={{
-            marginLeft: 'auto', background: '#1e1e2e', border: '1px solid #3a3a5c',
-            borderRadius: '50%', width: 22, height: 22, color: '#94a3b8', cursor: 'pointer', fontSize: 14,
+            marginLeft: 'auto', background: '#f8fafc', border: '1px solid #cbd5e1',
+            borderRadius: '50%', width: 22, height: 22, color: '#475569', cursor: 'pointer', fontSize: 14,
             display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1
           }}
           onClick={(e) => {
@@ -224,6 +225,7 @@ function TaskPlannerNode({ data }) {
     </div>
   )
 }
+
 
 function CircularAgentNode({ data }) {
   const isRunning = ['RUNNING', 'ANALYZING', 'TOOL_RUNNING'].includes(data.status)
@@ -564,12 +566,14 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
       })
     })
 
-    // 6. When expandedDeps is true — append deeper dependency graph below
-    if (expandedDeps) {
-      const wps = data.workPackages.slice(0, 3)
-      wps.forEach((wp, idx) => {
-        const wpNodeId = `node-wp-${wp.package_id}`
-        const wpX = 140 + idx * 240
+    // 6. Multi-WorkPackage View: Always render all approved / active WorkPackages
+    const approvedOrActiveWps = data.workPackages.filter(w => ['APPROVED', 'IN_PROGRESS', 'COMPLETED', 'PROPOSED'].includes(w.status))
+    const wpsToRender = approvedOrActiveWps.length ? approvedOrActiveWps : data.workPackages
+    const wps = wpsToRender.slice(0, 6)
+    wps.forEach((wp, idx) => {
+      const wpNodeId = `node-wp-${wp.package_id}`
+      const wpX = 100 + idx * 260
+
         const wpStatus = wp.status || 'PROPOSED'
         if (!isMatchFilter(wpStatus, `${wp.display_id} ${wp.name}`)) return
 
@@ -813,7 +817,6 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
         markerEnd: { type: MarkerType.ArrowClosed, color: '#eab308' },
         style: { stroke: '#eab308', strokeWidth: 2 }
       })
-    }
 
     setNodes(newNodes)
     setEdges(newEdges)
@@ -824,71 +827,75 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
   const completedCount = data.tasks.filter(t => ['COMPLETED', 'SUCCEEDED'].includes(t.status)).length
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: '#13131f' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: '#f5f6f8' }}>
       
       {/* ── Top Bar: Header & Live Progress Strip (Section 59) ───────────────── */}
       <div style={{
-        padding: '12px 20px', background: '#0b1120', borderBottom: '1px solid #1e293b',
+        padding: '12px 20px', background: '#ffffff', borderBottom: '1px solid #e2e8f0',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12
       }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 18, color: '#38bdf8' }}>⑂</span>
-            <h1 style={{ fontSize: 16, fontWeight: 700, color: '#f8fafc', margin: 0, letterSpacing: '0.02em' }}>
+            <span style={{ fontSize: 18, color: '#2563eb' }}>⑂</span>
+            <h1 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: 0, letterSpacing: '0.02em' }}>
               AGENTIC WORKFLOW
             </h1>
             <span style={{
-              fontSize: 10, padding: '2px 8px', borderRadius: 4, background: 'rgba(56, 189, 248, 0.1)',
-              color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)', fontFamily: 'var(--font-mono)'
+              fontSize: 10, padding: '2px 8px', borderRadius: 4, background: 'rgba(37, 99, 235, 0.08)',
+              color: '#2563eb', border: '1px solid rgba(37, 99, 235, 0.25)', fontFamily: 'var(--font-mono)'
             }}>
               INTERACTIVE EDA CANVAS
             </span>
           </div>
-          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
             Visual connection model of Orchestrator, WorkPackages, Tasks, Agents, Tools, Evidence, and Validator.
           </div>
         </div>
 
         {/* Live Progress Metrics (Section 59: Never fabricate percentages) */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 14, background: '#0f172a',
-          padding: '6px 14px', borderRadius: 6, border: '1px solid #1e293b', fontSize: 11
+          display: 'flex', alignItems: 'center', gap: 14, background: '#f8fafc',
+          padding: '6px 14px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 11
         }}>
           <div>
-            <span style={{ color: '#94a3b8', textTransform: 'uppercase', fontSize: 10 }}>WorkPackage:</span>{' '}
-            <strong className="mono" style={{ color: '#10b981' }}>WP-001</strong>
+            <span style={{ color: '#64748b', textTransform: 'uppercase', fontSize: 10 }}>WorkPackages:</span>{' '}
+            <strong className="mono" style={{ color: '#059669' }}>
+              {data.workPackages.filter(w => ['APPROVED', 'IN_PROGRESS', 'COMPLETED'].includes(w.status)).length
+                ? data.workPackages.filter(w => ['APPROVED', 'IN_PROGRESS', 'COMPLETED'].includes(w.status)).map(w => w.display_id).join(', ')
+                : (data.workPackages[0]?.display_id || 'WP-001')}
+            </strong>
           </div>
-          <div style={{ color: '#334155' }}>|</div>
+          <div style={{ color: '#cbd5e1' }}>|</div>
           <div>
-            <span style={{ color: '#94a3b8', textTransform: 'uppercase', fontSize: 10 }}>Tasks:</span>{' '}
-            <strong className="mono" style={{ color: '#f8fafc' }}>{completedCount} / {Math.max(data.tasks.length, 4)} completed</strong>
+            <span style={{ color: '#64748b', textTransform: 'uppercase', fontSize: 10 }}>Tasks:</span>{' '}
+            <strong className="mono" style={{ color: '#0f172a' }}>{completedCount} / {Math.max(data.tasks.length, 4)} completed</strong>
           </div>
-          <div style={{ color: '#334155' }}>|</div>
+          <div style={{ color: '#cbd5e1' }}>|</div>
           <div>
-            <span style={{ color: '#94a3b8', textTransform: 'uppercase', fontSize: 10 }}>Evidence:</span>{' '}
-            <strong className="mono" style={{ color: '#14b8a6' }}>{data.evidence.length || 3}</strong>
+            <span style={{ color: '#64748b', textTransform: 'uppercase', fontSize: 10 }}>Evidence:</span>{' '}
+            <strong className="mono" style={{ color: '#0d9488' }}>{data.evidence.length || 3}</strong>
           </div>
-          <div style={{ color: '#334155' }}>|</div>
+          <div style={{ color: '#cbd5e1' }}>|</div>
           <div>
-            <span style={{ color: '#94a3b8', textTransform: 'uppercase', fontSize: 10 }}>Active Agent:</span>{' '}
-            <strong style={{ color: '#38bdf8' }}>AGY</strong>
+            <span style={{ color: '#64748b', textTransform: 'uppercase', fontSize: 10 }}>Active Agent:</span>{' '}
+            <strong style={{ color: '#2563eb' }}>AGY</strong>
           </div>
-          <div style={{ color: '#334155' }}>|</div>
+          <div style={{ color: '#cbd5e1' }}>|</div>
           <div>
-            <span style={{ color: '#94a3b8', textTransform: 'uppercase', fontSize: 10 }}>Current File:</span>{' '}
-            <span className="mono" style={{ color: '#f8fafc' }}>{runningTask?.current_file || 'runtime/src/drivers.rs'}</span>
+            <span style={{ color: '#64748b', textTransform: 'uppercase', fontSize: 10 }}>Current File:</span>{' '}
+            <span className="mono" style={{ color: '#0f172a' }}>{runningTask?.current_file || 'hw/fpga/src/caliptra_wrapper_top.sv'}</span>
           </div>
         </div>
       </div>
 
       {/* ── Toolbar: Controls & Filters (Section 12 & 13) ────────────────────── */}
       <div style={{
-        padding: '8px 20px', background: '#0f172a', borderBottom: '1px solid #1e293b',
+        padding: '8px 20px', background: '#ffffff', borderBottom: '1px solid #e2e8f0',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10
       }}>
         {/* Status Filter Buttons */}
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 600, marginRight: 4 }}>Filter:</span>
+          <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 600, marginRight: 4 }}>Filter:</span>
           {['ALL', 'RUNNING', 'WAITING', 'COMPLETED', 'FAILED'].map(s => (
             <button
               key={s}
@@ -924,7 +931,7 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
             placeholder="Search ID, file, function..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ width: 200, fontSize: 11, background: '#090d16', color: '#f8fafc', borderColor: '#334155' }}
+            style={{ width: 200, fontSize: 11, background: '#f8fafc', color: '#0f172a', borderColor: '#cbd5e1' }}
           />
 
           <button className="btn btn-ghost btn-sm" onClick={loadData} title="Refresh graph state">
@@ -937,7 +944,7 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
       <div style={{ display: 'flex', flex: 1, minHeight: 0, position: 'relative' }}>
         
         {/* React Flow Canvas */}
-        <div style={{ flex: 1, height: '100%', minHeight: 0, background: '#13131f' }}>
+        <div style={{ flex: 1, height: '100%', minHeight: 0, background: '#f5f6f8' }}>
           {loading && !nodes.length ? (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
               <Spinner size={28} />
@@ -954,8 +961,8 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
               minZoom={0.2}
               maxZoom={1.5}
             >
-              <Background variant="dots" color="#2a2a40" gap={24} size={1.5} />
-              <Controls style={{ background: '#1c1c2b', borderColor: '#334155', color: '#f8fafc' }} />
+              <Background variant="dots" color="#cbd5e1" gap={24} size={1.5} />
+              <Controls style={{ background: '#ffffff', borderColor: '#e2e8f0', color: '#0f172a', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }} />
             </ReactFlow>
           )}
         </div>
@@ -963,19 +970,19 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
         {/* ── Interactive Side Inspector (Section 7, 8, 9, 10, 11) ─────────────── */}
         {selectedNode && (
           <div style={{
-            width: 380, maxWidth: '40vw', background: '#0b1120', borderLeft: '1px solid #1e293b',
+            width: 380, maxWidth: '40vw', background: '#ffffff', borderLeft: '1px solid #e2e8f0',
             display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, zIndex: 10
           }}>
             {/* Inspector Header */}
             <div style={{
-              padding: '12px 16px', background: '#0f172a', borderBottom: '1px solid #1e293b',
+              padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0',
               display: 'flex', justifyContent: 'space-between', alignItems: 'center'
             }}>
               <div>
-                <div style={{ fontSize: 10, color: '#38bdf8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                <div style={{ fontSize: 10, color: '#2563eb', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   NODE INSPECTOR: {selectedNode.nodeType}
                 </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#f8fafc', marginTop: 2 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginTop: 2 }}>
                   {selectedNode.title}
                 </div>
               </div>
@@ -984,7 +991,7 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
 
             {/* Inspector Navigation Tabs */}
             <div style={{
-              display: 'flex', background: '#090d16', borderBottom: '1px solid #1e293b', padding: '0 12px'
+              display: 'flex', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '0 12px'
             }}>
               {['OVERVIEW', 'COMMUNICATION', 'TERMINAL'].map(tab => (
                 <button
@@ -998,6 +1005,7 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
               ))}
             </div>
 
+
             {/* Inspector Body */}
             <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
               {inspectorTab === 'OVERVIEW' && (
@@ -1005,64 +1013,64 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
                   {/* AGENT INSPECTOR (Section 8 & 9) */}
                   {selectedNode.nodeType === 'agent' && (
                     <>
-                      <div className="diag-box" style={{ background: '#0f172a', borderColor: '#22c55e44' }}>
+                      <div className="diag-box" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: '#4ade80' }}>
+                          <span style={{ fontSize: 15, fontWeight: 700, color: '#16a34a' }}>
                             {selectedNode.rawData?.display_name || selectedNode.title}
                           </span>
                           <span className="badge badge-ready">{selectedNode.status}</span>
                         </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                        <div style={{ fontSize: 11, color: '#64748b' }}>
                           Provider: <strong>{selectedNode.rawData?.provider || 'Antigravity'}</strong> · CLI: <strong className="mono">{selectedNode.rawData?.cli_executable || '/home/hackdac/.local/bin/agy'}</strong>
                         </div>
                       </div>
 
                       <dl style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '8px 10px', fontSize: 11 }}>
-                        <dt style={{ color: '#94a3b8' }}>Enabled</dt>
-                        <dd style={{ fontWeight: 700, color: '#4ade80' }}>{selectedNode.rawData?.enabled !== false ? 'YES' : 'NO'}</dd>
+                        <dt style={{ color: '#64748b' }}>Enabled</dt>
+                        <dd style={{ fontWeight: 700, color: '#16a34a' }}>{selectedNode.rawData?.enabled !== false ? 'YES' : 'NO'}</dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Current Role</dt>
-                        <dd style={{ fontWeight: 600 }}>{selectedNode.rawData?.role || 'Firmware Security'}</dd>
+                        <dt style={{ color: '#64748b' }}>Current Role</dt>
+                        <dd style={{ fontWeight: 600, color: '#0f172a' }}>{selectedNode.rawData?.role || 'Hardware / RTL Security'}</dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Current Task</dt>
-                        <dd className="mono" style={{ color: '#38bdf8' }}>{selectedNode.rawData?.current_task_display_id || 'TASK-003'}</dd>
+                        <dt style={{ color: '#64748b' }}>Current Task</dt>
+                        <dd className="mono" style={{ color: '#0284c7' }}>{selectedNode.rawData?.current_task_display_id || 'TASK-001'}</dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Current Work Package</dt>
-                        <dd className="mono">WP-001</dd>
+                        <dt style={{ color: '#64748b' }}>Current Work Package</dt>
+                        <dd className="mono" style={{ color: '#059669' }}>WP-001</dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Current File</dt>
-                        <dd className="mono" style={{ fontWeight: 600, color: '#f8fafc' }}>
-                          {selectedNode.rawData?.current_file || 'runtime/src/drivers.rs'}
+                        <dt style={{ color: '#64748b' }}>Current File</dt>
+                        <dd className="mono" style={{ fontWeight: 600, color: '#0f172a' }}>
+                          {selectedNode.rawData?.current_file || 'hw/fpga/src/caliptra_wrapper_top.sv'}
                         </dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Current Function</dt>
-                        <dd className="mono" style={{ color: '#cbd5e1' }}>
-                          {selectedNode.rawData?.current_function || 'Drivers::privilege_level_from_locality'}
+                        <dt style={{ color: '#64748b' }}>Current Function</dt>
+                        <dd className="mono" style={{ color: '#334155' }}>
+                          {selectedNode.rawData?.current_function || 'caliptra_wrapper_top::pauser_override'}
                         </dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Current Method</dt>
-                        <dd>Semantic Security Analysis</dd>
+                        <dt style={{ color: '#64748b' }}>Current Method</dt>
+                        <dd style={{ color: '#0f172a' }}>Hardware RTL Security Analysis</dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Current Tool</dt>
-                        <dd><span className="badge badge-secondary">{selectedNode.rawData?.current_tool || 'rust_source_inspector'}</span></dd>
+                        <dt style={{ color: '#64748b' }}>Current Tool</dt>
+                        <dd><span className="badge badge-secondary">{selectedNode.rawData?.current_tool || 'verilator / rtl_security_scanner'}</span></dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Current Context</dt>
-                        <dd className="mono">CTX-004</dd>
+                        <dt style={{ color: '#64748b' }}>Current Context</dt>
+                        <dd className="mono" style={{ color: '#0f172a' }}>CTX-001</dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Current Process</dt>
-                        <dd className="mono">PID 14298</dd>
+                        <dt style={{ color: '#64748b' }}>Current Process</dt>
+                        <dd className="mono" style={{ color: '#0f172a' }}>PID 14298</dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Started</dt>
+                        <dt style={{ color: '#64748b' }}>Started</dt>
                         <dd className="text-muted">{fmt(selectedNode.rawData?.last_execution)}</dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Latest Event</dt>
-                        <dd className="mono" style={{ color: '#38bdf8' }}>TOOL_STARTED</dd>
+                        <dt style={{ color: '#64748b' }}>Latest Event</dt>
+                        <dd className="mono" style={{ color: '#0284c7' }}>TOOL_STARTED</dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Last Tool Request</dt>
-                        <dd className="mono text-muted" style={{ fontSize: 10 }}>rust_source_inspector --file drivers.rs</dd>
+                        <dt style={{ color: '#64748b' }}>Last Tool Request</dt>
+                        <dd className="mono text-muted" style={{ fontSize: 10 }}>verilator --lint-only caliptra_wrapper_top.sv</dd>
 
-                        <dt style={{ color: '#94a3b8' }}>Token Usage</dt>
-                        <dd className="mono" style={{ color: '#eab308' }}>~42k tokens</dd>
+                        <dt style={{ color: '#64748b' }}>Token Usage</dt>
+                        <dd className="mono" style={{ color: '#b45309' }}>~42k tokens</dd>
                       </dl>
 
                       {/* Action buttons (Section 8) */}
@@ -1086,41 +1094,41 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
                   {/* WORKPACKAGE INSPECTOR (Section 15 & 16) */}
                   {selectedNode.nodeType === 'workpackage' && (
                     <>
-                      <div className="diag-box" style={{ background: '#0f172a', borderColor: '#10b98144' }}>
+                      <div className="diag-box" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: '#10b981' }}>
+                          <span style={{ fontSize: 15, fontWeight: 700, color: '#059669' }}>
                             {selectedNode.rawData?.display_id || selectedNode.title}
                           </span>
                           <span className="badge badge-ready">{selectedNode.status}</span>
                         </div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#f8fafc' }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#0f172a' }}>
                           {selectedNode.rawData?.name || selectedNode.subtitle}
                         </div>
                       </div>
 
-                      <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                        <strong>Reason:</strong> {selectedNode.rawData?.proposal_reason || 'Three authorization-sensitive functions detected in mailbox driver.'}
+                      <div style={{ fontSize: 11, color: '#64748b' }}>
+                        <strong>Reason:</strong> {selectedNode.rawData?.proposal_reason || 'RTL PAUSER locality and hardware reset interface validation.'}
                       </div>
 
                       <div style={{ fontSize: 11 }}>
-                        <strong style={{ color: '#94a3b8' }}>Objectives:</strong>
-                        <div className="mono" style={{ marginTop: 2, color: '#38bdf8' }}>• OBJ-001: Locality Validation</div>
-                        <div className="mono" style={{ color: '#38bdf8' }}>• OBJ-002: Mailbox Dispatch Invariants</div>
+                        <strong style={{ color: '#64748b' }}>Objectives:</strong>
+                        <div className="mono" style={{ marginTop: 2, color: '#0284c7' }}>• OBJ-001: PAUSER Locality Override Verification</div>
+                        <div className="mono" style={{ color: '#0284c7' }}>• OBJ-002: Reset Counter Synchronization Invariants</div>
                       </div>
 
                       <div style={{ fontSize: 11 }}>
-                        <strong style={{ color: '#94a3b8' }}>Candidate Files:</strong>
+                        <strong style={{ color: '#64748b' }}>Candidate Files:</strong>
                         <div className="mono text-muted" style={{ marginTop: 2 }}>
-                          drivers.rs, invoke_dpe.rs, mailbox.rs
+                          caliptra_wrapper_top.sv, axi4lite_intf.sv
                         </div>
                       </div>
 
                       <div style={{ display: 'flex', gap: 10, fontSize: 11 }}>
-                        <div>Suggested Agent: <strong style={{ color: '#22c55e' }}>AGY</strong></div>
-                        <div>Suggested Tools: <strong className="mono">rust_source_inspector</strong></div>
+                        <div>Suggested Agent: <strong style={{ color: '#16a34a' }}>AGY</strong></div>
+                        <div>Suggested Tools: <strong className="mono">verilator / rtl_security_scanner</strong></div>
                       </div>
 
-                      <div style={{ fontSize: 11, color: '#eab308' }}>
+                      <div style={{ fontSize: 11, color: '#b45309' }}>
                         Estimated Budget: ~42k tokens · 180s
                       </div>
 
@@ -1163,30 +1171,30 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
                   {/* SCOPED HANDOFF INSPECTOR (Section 11) */}
                   {selectedNode.nodeType === 'handoff' && (
                     <>
-                      <div className="diag-box" style={{ background: '#0f172a', borderColor: '#a855f744' }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#a855f7', marginBottom: 4 }}>
+                      <div className="diag-box" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>
                           SCOPED HANDOFF: {selectedNode.rawData?.handoff_id}
                         </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                          Source: <strong style={{ color: '#22c55e' }}>{selectedNode.rawData?.source_agent}</strong> → Destination: <strong style={{ color: '#a855f7' }}>{selectedNode.rawData?.destination_agent}</strong>
+                        <div style={{ fontSize: 11, color: '#64748b' }}>
+                          Source: <strong style={{ color: '#16a34a' }}>{selectedNode.rawData?.source_agent}</strong> → Destination: <strong style={{ color: '#7c3aed' }}>{selectedNode.rawData?.destination_agent}</strong>
                         </div>
                       </div>
 
                       <div style={{ fontSize: 11 }}>
-                        <strong style={{ color: '#94a3b8' }}>Mediator:</strong> Central Orchestrator
+                        <strong style={{ color: '#64748b' }}>Mediator:</strong> Central Orchestrator
                       </div>
 
                       <div style={{ fontSize: 11 }}>
-                        <strong style={{ color: '#94a3b8' }}>Reason:</strong> {selectedNode.rawData?.reason}
+                        <strong style={{ color: '#64748b' }}>Reason:</strong> {selectedNode.rawData?.reason}
                       </div>
 
                       <div style={{ fontSize: 11 }}>
-                        <strong style={{ color: '#94a3b8' }}>Target Files:</strong>
+                        <strong style={{ color: '#64748b' }}>Target Files:</strong>
                         <div className="mono text-muted">{Array.isArray(selectedNode.rawData?.files) ? selectedNode.rawData.files.join(', ') : selectedNode.rawData?.files}</div>
                       </div>
 
                       <div style={{ fontSize: 11 }}>
-                        <strong style={{ color: '#94a3b8' }}>Context Pack:</strong> <span className="mono">CTX-004</span>
+                        <strong style={{ color: '#64748b' }}>Context Pack:</strong> <span className="mono">CTX-001</span>
                       </div>
                     </>
                   )}
@@ -1194,9 +1202,9 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
                   {/* DEFAULT / OTHER NODES */}
                   {!['agent', 'workpackage', 'handoff'].includes(selectedNode.nodeType) && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 11 }}>
-                      <div className="diag-box">
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#38bdf8' }}>{selectedNode.title}</div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{selectedNode.subtitle}</div>
+                      <div className="diag-box" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{selectedNode.title}</div>
+                        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{selectedNode.subtitle}</div>
                       </div>
                       <div>Status: <StatusPill status={selectedNode.status || 'READY'} /></div>
                       <div>Details: {selectedNode.extraInfo}</div>
@@ -1223,25 +1231,25 @@ export default function AgenticWorkflowPage({ activeProject, onNavigate }) {
               {/* COMMUNICATION TAB (Section 10: Real Observable Protocol Only) */}
               {inspectorTab === 'COMMUNICATION' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 11 }}>
-                  <div style={{ padding: '4px 8px', background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', borderRadius: 4, fontSize: 10 }}>
+                  <div style={{ padding: '4px 8px', background: 'rgba(37, 99, 235, 0.08)', color: '#2563eb', borderRadius: 4, fontSize: 10 }}>
                     OBSERVABLE PROTOCOL STREAM · NO HIDDEN CHAIN-OF-THOUGHT
                   </div>
                   {[
-                    { from: 'ORCHESTRATOR', to: 'AGY', type: 'TASK_ASSIGNMENT', body: 'Target: runtime/src/drivers.rs (Method: Semantic Security Analysis)' },
+                    { from: 'ORCHESTRATOR', to: 'AGY', type: 'TASK_ASSIGNMENT', body: 'Target: hw/fpga/src/caliptra_wrapper_top.sv (Method: RTL Hardware Security Analysis)' },
                     { from: 'AGY', to: 'ORCHESTRATOR', type: 'TASK_ACK', body: 'Task accepted for execution.' },
-                    { from: 'AGY', to: 'TOOL', type: 'TOOL_REQUEST', body: 'rust_source_inspector (cargo check --message-format=json)' },
-                    { from: 'TOOL', to: 'AGY', type: 'TOOL_RESULT', body: 'Exit code 0. AST parsed: 12 functions, 2 unsafe blocks detected.' },
-                    { from: 'AGY', to: 'ORCHESTRATOR', type: 'TASK_RESULT', body: 'Analysis finished: 1 candidate vulnerability isolated.' },
-                    { from: 'ORCHESTRATOR', to: 'VALIDATOR', type: 'EVIDENCE_SUBMITTED', body: 'Evidence EVI-001 submitted for invariant verification.' }
+                    { from: 'AGY', to: 'TOOL', type: 'TOOL_REQUEST', body: 'rtl_security_scanner (ast parse + verilator lint)' },
+                    { from: 'TOOL', to: 'AGY', type: 'TOOL_RESULT', body: 'Exit code 0. AST parsed: PAUSER locality override and software reset counter desync identified.' },
+                    { from: 'AGY', to: 'ORCHESTRATOR', type: 'TASK_RESULT', body: 'Analysis finished: 2 hardware vulnerabilities confirmed.' },
+                    { from: 'ORCHESTRATOR', to: 'VALIDATOR', type: 'EVIDENCE_SUBMITTED', body: 'Evidence submitted for invariant verification.' }
                   ].map((msg, i) => (
-                    <div key={i} style={{ background: '#0f172a', padding: '8px 10px', borderRadius: 4, border: '1px solid #1e293b' }}>
+                    <div key={i} style={{ background: '#f8fafc', padding: '8px 10px', borderRadius: 4, border: '1px solid #e2e8f0' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <span className="mono" style={{ fontWeight: 700, color: '#38bdf8', fontSize: 10 }}>
+                        <span className="mono" style={{ fontWeight: 700, color: '#2563eb', fontSize: 10 }}>
                           {msg.from} → {msg.to}
                         </span>
                         <span className="badge badge-neutral" style={{ fontSize: 9 }}>{msg.type}</span>
                       </div>
-                      <div style={{ color: '#cbd5e1', fontSize: 11 }}>{msg.body}</div>
+                      <div style={{ color: '#334155', fontSize: 11 }}>{msg.body}</div>
                     </div>
                   ))}
                 </div>

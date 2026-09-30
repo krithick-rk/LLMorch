@@ -233,6 +233,12 @@ export const api = {
     const q = new URLSearchParams(params).toString()
     return req(`/debug/logs/project/${projectId}${q ? `?${q}` : ''}`)
   },
+
+  // COMMA Engineering Assistant
+  commaStatus: () => req('/comma/status'),
+  commaQuery: (body) => req('/comma/query', { method: 'POST', body: JSON.stringify(body) }),
+  commaHistory: (projectId = null, limit = 50) => req(`/comma/history?${projectId ? `project_id=${projectId}&` : ''}limit=${limit}`),
+  clearCommaHistory: (projectId = null) => req(`/comma/history${projectId ? `?project_id=${projectId}` : ''}`, { method: 'DELETE' }),
 };
 
 export default api;

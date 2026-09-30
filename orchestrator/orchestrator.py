@@ -347,6 +347,13 @@ class CentralOrchestrator:
                 payload={"task_id": tid, "status": "QUEUED"}
             )
 
+        try:
+            from scheduler.scheduler import task_scheduler
+            for tid in task_ids:
+                task_scheduler.notify_new_task(tid)
+        except Exception:
+            pass
+
         # Launch background executor
         asyncio.create_task(
             self.dispatch_and_execute_run(
@@ -356,6 +363,7 @@ class CentralOrchestrator:
                 task_ids=task_ids
             )
         )
+
 
         return {
             "status": "SUCCESS",
@@ -1472,6 +1480,12 @@ class CentralOrchestrator:
 
             conn.commit()
 
+        try:
+            from scheduler.scheduler import task_scheduler
+            task_scheduler.notify_new_task(task_id)
+        except Exception:
+            pass
+
         class UserTaskResult(str):
             def __getitem__(self, key):
                 if key == "task_id":
@@ -1487,6 +1501,7 @@ class CentralOrchestrator:
                 return default
 
         return UserTaskResult(task_id)
+
 
     def execute_retry_attempt(
         self,
@@ -1555,11 +1570,18 @@ class CentralOrchestrator:
                 SET status = ?, current_attempt = ?, retry_count = retry_count + 1,
                     override_reason = ?, watchdog_status = 'NORMAL', last_heartbeat_at = ?
                 WHERE task_id = ?
-            """, (ExplicitTaskState.RUNNING.value, next_attempt_num, mod_str, now, task_id))
+            """, (ExplicitTaskState.QUEUED.value, next_attempt_num, mod_str, now, task_id))
 
             conn.commit()
 
+        try:
+            from scheduler.scheduler import task_scheduler
+            task_scheduler.notify_new_task(task_id)
+        except Exception:
+            pass
+
         return TaskAttemptRecord(
+
             attempt_id=new_attempt_id,
             task_id=task_id,
             attempt_number=next_attempt_num,

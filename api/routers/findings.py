@@ -174,8 +174,13 @@ def get_finding(finding_id: str, session: SessionInfo = Depends(require_session)
             disp_id = full_id
 
         pid = r.get("project_id") or "proj-e3b74aff"
-        p_row = conn.execute("SELECT display_id FROM projects WHERE project_id = ?", (pid,)).fetchone()
-        proj_disp = (p_row["display_id"] if p_row and p_row["display_id"] else "PROJ-001")
+        proj_disp = "PROJ-001"
+        try:
+            p_row = conn.execute("SELECT display_id FROM projects WHERE project_id = ?", (pid,)).fetchone()
+            if p_row and p_row["display_id"]:
+                proj_disp = p_row["display_id"]
+        except Exception:
+            pass
 
         # Resolve linked task & plan & evidence
         task_disp = None
@@ -185,23 +190,32 @@ def get_finding(finding_id: str, session: SessionInfo = Depends(require_session)
         wp_disp = None
         obj_disp = None
         if r.get("task_id"):
-            t_row = conn.execute("SELECT display_id, plan_id, work_package_id FROM tasks WHERE task_id = ?", (r["task_id"],)).fetchone()
-            if t_row:
-                task_disp = t_row["display_id"]
-                plan_id = plan_id or t_row["plan_id"]
-                wp_id = wp_id or t_row["work_package_id"]
+            try:
+                t_row = conn.execute("SELECT display_id, plan_id, work_package_id FROM tasks WHERE task_id = ?", (r["task_id"],)).fetchone()
+                if t_row:
+                    task_disp = t_row["display_id"]
+                    plan_id = plan_id or t_row["plan_id"]
+                    wp_id = wp_id or t_row["work_package_id"]
+            except Exception:
+                pass
 
         if plan_id:
-            pl_row = conn.execute("SELECT display_id FROM verification_plans WHERE plan_id = ?", (plan_id,)).fetchone()
-            if pl_row and pl_row["display_id"]:
-                plan_disp = pl_row["display_id"]
+            try:
+                pl_row = conn.execute("SELECT display_id FROM verification_plans WHERE plan_id = ?", (plan_id,)).fetchone()
+                if pl_row and pl_row["display_id"]:
+                    plan_disp = pl_row["display_id"]
+            except Exception:
+                pass
         if not plan_disp:
             plan_disp = f"{proj_disp}-PLAN-001-V1"
 
         if wp_id:
-            wp_row = conn.execute("SELECT display_id FROM work_packages WHERE package_id = ?", (wp_id,)).fetchone()
-            if wp_row and wp_row["display_id"]:
-                wp_disp = wp_row["display_id"]
+            try:
+                wp_row = conn.execute("SELECT display_id FROM work_packages WHERE package_id = ?", (wp_id,)).fetchone()
+                if wp_row and wp_row["display_id"]:
+                    wp_disp = wp_row["display_id"]
+            except Exception:
+                pass
         if not wp_disp:
             wp_disp = f"{proj_disp}-WP-001"
 

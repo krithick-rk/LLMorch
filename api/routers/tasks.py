@@ -555,15 +555,17 @@ async def create_task(
     proj_repo = ProjectRepository(db)
     target_project_id = request.project_id or proj_repo.get_active_project_id()
 
+    from history.id_service import IdService
     with db.get_connection() as conn:
+        full_id, short_id, seq = IdService.allocate_display_id(conn, target_project_id, "TASK")
         conn.execute("""
             INSERT INTO tasks (
                 task_id, workflow_id, parent_task_id, objective, inputs, dependencies,
                 required_capabilities, preferred_roles, risk_level, workspace_policy,
                 tool_policy, budget, status, assigned_agent_id, retry_count,
                 acceptance_criteria, result_ref, schema_version, created_at, started_at, completed_at,
-                project_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                project_id, display_id, sequence_no, current_stage
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             task_data["task_id"],
             task_data["workflow_id"],
@@ -587,6 +589,9 @@ async def create_task(
             task_data["started_at"],
             task_data["completed_at"],
             target_project_id,
+            full_id,
+            seq,
+            "QUEUED",
         ))
         conn.commit()
 
@@ -598,6 +603,7 @@ async def create_task(
         project_id=target_project_id,
         payload={
             "task_id": task_id,
+            "display_id": full_id,
             "project_id": target_project_id,
             "workflow_id": workflow_id,
             "objective": task_data["objective"],
@@ -605,17 +611,39 @@ async def create_task(
             "repository_path": repo_path,
         }
     )
+    await event_manager.broadcast(
+        event_type="TASK_QUEUED",
+        entity_type="task",
+        entity_id=task_id,
+        project_id=target_project_id,
+        payload={
+            "task_id": task_id,
+            "display_id": full_id,
+            "project_id": target_project_id,
+            "status": "QUEUED"
+        }
+    )
+
+    # Notify authoritative task scheduler
+    try:
+        from scheduler.scheduler import task_scheduler
+        task_scheduler.notify_new_task(task_id)
+    except Exception:
+        pass
 
     return TaskSummary(
         task_id=task_id,
+        display_id=full_id,
         project_id=target_project_id,
         workflow_id=workflow_id,
         objective=task_data["objective"],
         status="QUEUED",
+        current_stage="QUEUED",
         assigned_agent_id=request.assigned_agent_id,
         retry_count=0,
         created_at=now,
     )
+
 
 
 @router.post("/{task_id}/instructions", response_model=AnalystInstructionItem)
@@ -985,6 +1013,12 @@ def create_user_task_endpoint(
             plan_id=req.plan_id,
             bucket=req.bucket
         )
+        try:
+            from scheduler.scheduler import task_scheduler
+            task_scheduler.notify_new_task(task_id)
+        except Exception:
+            pass
+
         task_dict = {
             "task_id": task_id,
             "status": "CREATED",
@@ -1049,7 +1083,15 @@ def retry_task_endpoint(
             analyst_instruction=req.analyst_instruction,
             reason=req.reason
         )
+
+        try:
+            from scheduler.scheduler import task_scheduler
+            task_scheduler.notify_new_task(task_id)
+        except Exception:
+            pass
+
         att_dict = attempt.model_dump()
+
         att_dict["tool_override"] = override_tool
         att_dict["agent_id"] = override_agent or attempt.agent_id
         return {

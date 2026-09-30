@@ -213,13 +213,22 @@ class ToolPlan(BaseModel):
 class WorkPackage(BaseModel):
     project_id: Optional[str] = None
     package_id: str = Field(default_factory=lambda: f"wp-{uuid.uuid4().hex[:8]}")
+    display_id: Optional[str] = None
     plan_id: str
     name: str
     description: str
+    why_proposed: Optional[str] = None
+    method: Optional[str] = None
+    tools: List[str] = Field(default_factory=list)
+    agents: List[str] = Field(default_factory=list)
+    expected_evidence: Optional[str] = None
+    risks: List[str] = Field(default_factory=list)
     bucket: SoCBucket
     role: str
     objective_ids: List[str] = Field(default_factory=list)
     target_files: List[str] = Field(default_factory=list)
+    supporting_context: List[str] = Field(default_factory=list)
+    excluded_paths: List[str] = Field(default_factory=list)
     dependencies: List[str] = Field(default_factory=list)
     estimated_tokens: int = 25000
     estimated_duration_seconds: int = 120
@@ -233,10 +242,15 @@ class WorkPackage(BaseModel):
 class VerificationPlan(BaseModel):
     project_id: Optional[str] = None
     plan_id: str = Field(default_factory=lambda: f"vplan-{uuid.uuid4().hex[:8]}")
+    display_id: Optional[str] = None
     version: int = 1
     repository_path: str
     repository_name: str
     scope_description: str
+    target_scope: Optional[str] = None
+    intent: Optional[str] = None
+    why_files_selected: Optional[str] = None
+    expected_output: Optional[str] = None
     status: PlanStatus = PlanStatus.DRAFT
     buckets_applicability: Dict[str, str] = Field(default_factory=dict)  # bucket -> APPLICABLE / NOT_APPLICABLE / UNKNOWN
     applicability_reasons: Dict[str, str] = Field(default_factory=dict)  # bucket -> explicit rationale string

@@ -114,29 +114,35 @@ class IdService:
     @classmethod
     def get_project_display_id(cls, conn: sqlite3.Connection, project_id: str) -> str:
         """Retrieves or derives the project's stable display ID (e.g. PROJ-001)."""
-        row = conn.execute(
-            "SELECT display_id, sequence_no FROM projects WHERE project_id = ?",
-            (project_id,)
-        ).fetchone()
-        if row and row["display_id"]:
-            return row["display_id"]
+        try:
+            row = conn.execute(
+                "SELECT display_id, sequence_no FROM projects WHERE project_id = ?",
+                (project_id,)
+            ).fetchone()
+            if row and row["display_id"]:
+                return row["display_id"]
 
-        # If not yet set, allocate a sequence number for projects under global namespace
-        cls.ensure_sequence_table(conn)
-        seq_row = conn.execute(
-            "SELECT last_sequence FROM project_id_sequences WHERE project_id = '__GLOBAL__' AND entity_type = 'PROJECT'"
-        ).fetchone()
-        seq = (seq_row["last_sequence"] + 1) if seq_row else 1
-        conn.execute(
-            "INSERT OR REPLACE INTO project_id_sequences (project_id, entity_type, last_sequence) VALUES ('__GLOBAL__', 'PROJECT', ?)",
-            (seq,)
-        )
-        disp_id = f"PROJ-{seq:03d}"
-        conn.execute(
-            "UPDATE projects SET display_id = ?, sequence_no = ? WHERE project_id = ?",
-            (disp_id, seq, project_id)
-        )
-        return disp_id
+            # If not yet set, allocate a sequence number for projects under global namespace
+            cls.ensure_sequence_table(conn)
+            seq_row = conn.execute(
+                "SELECT last_sequence FROM project_id_sequences WHERE project_id = '__GLOBAL__' AND entity_type = 'PROJECT'"
+            ).fetchone()
+            seq = (seq_row["last_sequence"] + 1) if seq_row else 1
+            conn.execute(
+                "INSERT OR REPLACE INTO project_id_sequences (project_id, entity_type, last_sequence) VALUES ('__GLOBAL__', 'PROJECT', ?)",
+                (seq,)
+            )
+            disp_id = f"PROJ-{seq:03d}"
+            try:
+                conn.execute(
+                    "UPDATE projects SET display_id = ?, sequence_no = ? WHERE project_id = ?",
+                    (disp_id, seq, project_id)
+                )
+            except Exception:
+                pass
+            return disp_id
+        except Exception:
+            return "PROJ-001"
 
     @classmethod
     def allocate_display_id(
@@ -196,14 +202,14 @@ def run_database_schema_and_id_migration(db_path: str) -> Dict[str, Any]:
     tables_to_migrate = [
         ("projects", "display_id TEXT", "sequence_no INTEGER"),
         ("runs", "display_id TEXT", "sequence_no INTEGER"),
-        ("verification_plans", "display_id TEXT", "sequence_no INTEGER"),
-        ("work_packages", "display_id TEXT", "sequence_no INTEGER", "proposal_reason TEXT", "risks TEXT", "why_proposed TEXT", "approval_status TEXT"),
+        ("verification_plans", "display_id TEXT", "sequence_no INTEGER", "target_scope TEXT", "intent TEXT", "why_files_selected TEXT", "expected_output TEXT"),
+        ("work_packages", "display_id TEXT", "sequence_no INTEGER", "proposal_reason TEXT", "risks TEXT", "why_proposed TEXT", "approval_status TEXT", "method TEXT", "tools TEXT", "agents TEXT", "expected_evidence TEXT", "target_files TEXT DEFAULT '[]'", "supporting_context TEXT DEFAULT '[]'", "excluded_paths TEXT DEFAULT '[]'"),
         ("verification_objectives", "display_id TEXT", "sequence_no INTEGER"),
-        ("tasks", "display_id TEXT", "sequence_no INTEGER", "current_stage TEXT DEFAULT 'QUEUED'", "current_file TEXT", "current_function TEXT", "current_tool TEXT"),
+        ("tasks", "display_id TEXT", "sequence_no INTEGER", "current_stage TEXT DEFAULT 'QUEUED'", "current_file TEXT", "current_function TEXT", "current_tool TEXT", "why_queued TEXT", "target_files TEXT DEFAULT '[]'", "supporting_context TEXT DEFAULT '[]'", "excluded_paths TEXT DEFAULT '[]'", "role_reason TEXT"),
         ("task_attempts", "display_id TEXT", "sequence_no INTEGER"),
         ("artifacts", "display_id TEXT", "sequence_no INTEGER"),
         ("evidence", "display_id TEXT", "sequence_no INTEGER", "duplicate_of_id TEXT", "line_range TEXT", "function_name TEXT", "observation TEXT", "expected_behavior TEXT"),
-        ("findings", "display_id TEXT", "sequence_no INTEGER", "security_domain TEXT", "affected_component TEXT", "affected_files TEXT", "function_symbol TEXT", "line_range TEXT", "root_cause TEXT", "observed_behavior TEXT", "expected_behavior TEXT", "security_impact TEXT", "attack_scenario TEXT", "detection_method TEXT", "reproducer_spec TEXT", "validator_verdict TEXT", "plan_id TEXT", "plan_version TEXT", "work_package_id TEXT", "objective_id TEXT", "attempt_id TEXT", "parent_context_required INTEGER DEFAULT 0"),
+        ("findings", "display_id TEXT", "sequence_no INTEGER", "security_domain TEXT", "affected_component TEXT", "affected_files TEXT", "function_symbol TEXT", "line_range TEXT", "root_cause TEXT", "observed_behavior TEXT", "expected_behavior TEXT", "security_impact TEXT", "attack_scenario TEXT", "detection_method TEXT", "reproducer_spec TEXT", "validator_verdict TEXT", "plan_id TEXT", "plan_version TEXT", "work_package_id TEXT", "objective_id TEXT", "attempt_id TEXT", "parent_context_required INTEGER DEFAULT 0", "duplicate_of_id TEXT", "has_duplicates INTEGER DEFAULT 0", "poc_available INTEGER DEFAULT 0", "poc_command TEXT"),
         ("tool_executions", "display_id TEXT", "sequence_no INTEGER", "working_directory TEXT"),
         ("agents", "availability TEXT DEFAULT 'READY'", "auth_status TEXT DEFAULT 'AUTHENTICATED'", "supported_roles TEXT DEFAULT '[]'", "supported_methods TEXT DEFAULT '[]'", "supported_tools TEXT DEFAULT '[]'", "current_workload INTEGER DEFAULT 0", "last_execution_at TEXT", "current_task_id TEXT", "execution_policy TEXT DEFAULT 'STANDARD'")
     ]
