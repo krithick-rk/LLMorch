@@ -67,6 +67,32 @@ class CentralOrchestrator:
         self.policy = get_execution_policy()
         self.watchdog_config = TaskWatchdogConfig()
 
+    def get_active_agents(self, project_id: Optional[str] = None) -> List[str]:
+        """Returns enabled, executable agents respecting enterprise policy, database toggles, and project preferences."""
+        with self.db.get_connection() as conn:
+            try:
+                agent_rows = conn.execute("SELECT agent_id, enabled FROM agents WHERE agent_id NOT LIKE '%claude%'").fetchall()
+            except Exception:
+                agent_rows = []
+            pref_rows = {}
+            if project_id:
+                try:
+                    prefs = conn.execute("SELECT agent_id, is_allowed FROM project_agent_preferences WHERE project_id = ?", (project_id,)).fetchall()
+                    pref_rows = {p[0]: bool(p[1]) for p in prefs}
+                except Exception:
+                    pass
+
+        if agent_rows:
+            return [
+                r["agent_id"] for r in agent_rows
+                if bool(r["enabled"]) and pref_rows.get(r["agent_id"], True)
+                and self.policy.is_agent_executable(r["agent_id"])
+            ]
+        return [
+            a.agent_id for a in self.agent_registry.list_agents()
+            if a.enabled and self.policy.is_agent_executable(a.agent_id) and "claude" not in a.agent_id.lower()
+        ]
+
     def execute_verification_plan(
         self,
         plan: VerificationPlan,
@@ -214,10 +240,7 @@ class CentralOrchestrator:
             conn.execute("UPDATE verification_plans SET project_id = ? WHERE plan_id = ?", (active_proj_id, plan_id))
             conn.commit()
 
-        active_agents = [
-            a.agent_id for a in self.agent_registry.list_agents()
-            if a.enabled and self.policy.is_agent_executable(a.agent_id) and "claude" not in a.agent_id.lower()
-        ]
+        active_agents = self.get_active_agents(project_id=active_proj_id)
         default_agent = active_agents[0] if active_agents else "agent-agy-01"
 
         run_id = f"run-{uuid.uuid4().hex[:8]}"
@@ -369,17 +392,16 @@ class CentralOrchestrator:
         if not plan:
             return
 
-        active_agents = [
-            a.agent_id for a in self.agent_registry.list_agents()
-            if a.enabled and self.policy.is_agent_executable(a.agent_id) and "claude" not in a.agent_id.lower()
-        ]
+        active_agents = self.get_active_agents(project_id=project_id)
         default_agent = active_agents[0] if active_agents else "agent-agy-01"
 
         if not active_agents:
             with self.db.get_connection() as conn:
                 conn.execute("""
                     UPDATE tasks
-                    SET status = 'WAITING_FOR_AGENT', failure_reason = 'No executable agent is currently available.'
+                    SET status = 'WAITING_FOR_AGENT',
+                        stop_reason = 'No enabled eligible execution agent is available.',
+                        failure_reason = 'No enabled eligible execution agent is available.'
                     WHERE plan_id = ? AND status IN ('QUEUED', 'BLOCKED')
                 """, (plan_id,))
                 conn.commit()
@@ -387,7 +409,7 @@ class CentralOrchestrator:
                 event_type="TASK_BLOCKED",
                 run_id=run_id,
                 project_id=project_id,
-                payload={"reason": "No executable agent is currently available."}
+                payload={"reason": "No enabled eligible execution agent is available."}
             )
             return
 
@@ -434,11 +456,11 @@ class CentralOrchestrator:
                             payload={"task_id": bt["task_id"], "unblocked": True}
                         )
 
-            # 2. Pick next QUEUED task
+            # 2. Pick next QUEUED or WAITING_FOR_AGENT task
             with self.db.get_connection() as conn:
                 next_task = conn.execute("""
                     SELECT * FROM tasks
-                    WHERE plan_id = ? AND status = 'QUEUED'
+                    WHERE plan_id = ? AND status IN ('QUEUED', 'WAITING_FOR_AGENT')
                     ORDER BY created_at ASC LIMIT 1
                 """, (plan_id,)).fetchone()
 
@@ -456,9 +478,99 @@ class CentralOrchestrator:
 
             t = dict(next_task)
             tid = t["task_id"]
-            assigned_agent = t.get("assigned_agent_id") or default_agent
-            if "claude" in assigned_agent.lower():
-                assigned_agent = default_agent
+            proj_id = t.get("project_id") or project_id
+
+            # 2.5 Real Agent Enable/Disable & Project Preference Routing (Section 1, 2, 3)
+            with self.db.get_connection() as conn:
+                try:
+                    from history.id_service import IdService
+                    IdService.ensure_sequence_table(conn)
+                except Exception:
+                    pass
+
+                try:
+                    ag_cols = [c[1] for c in conn.execute("PRAGMA table_info(agents)").fetchall()]
+                    if "enabled" in ag_cols:
+                        total_agents = conn.execute("SELECT COUNT(*) FROM agents").fetchone()[0]
+                        if total_agents == 0:
+                            globally_enabled = ["agent-agy-01", "agent-codex-01"]
+                        else:
+                            enabled_rows = conn.execute("SELECT agent_id FROM agents WHERE enabled = 1").fetchall()
+                            globally_enabled = [r["agent_id"] for r in enabled_rows if "claude" not in r["agent_id"].lower()]
+                    else:
+                        globally_enabled = ["agent-agy-01", "agent-codex-01"]
+                except Exception:
+                    globally_enabled = ["agent-agy-01", "agent-codex-01"]
+
+                try:
+                    pref_rows = conn.execute(
+                        "SELECT agent_id, is_allowed, is_preferred FROM project_agent_preferences WHERE project_id = ?",
+                        (proj_id,)
+                    ).fetchall()
+                except Exception:
+                    pref_rows = []
+
+                if pref_rows:
+                    allowed_map = {r["agent_id"]: bool(r["is_allowed"]) for r in pref_rows}
+                    eligible_agents = [a for a in globally_enabled if allowed_map.get(a, True)]
+                else:
+                    eligible_agents = globally_enabled
+
+                pref_agents = [r["agent_id"] for r in pref_rows if r["is_preferred"] and r["agent_id"] in eligible_agents]
+
+            # Determine assigned agent
+            candidate_agent = t.get("assigned_agent_id") or default_agent
+            if "claude" in candidate_agent.lower():
+                candidate_agent = default_agent
+
+            if candidate_agent in eligible_agents:
+                assigned_agent = candidate_agent
+            elif pref_agents:
+                assigned_agent = pref_agents[0]
+            elif eligible_agents:
+                assigned_agent = eligible_agents[0]
+            else:
+                assigned_agent = None
+
+            if not assigned_agent or not eligible_agents:
+                # Section 2: If all eligible agents are disabled:
+                # tasks must enter: WAITING_FOR_AGENT with: "No enabled eligible execution agent is available."
+                now = datetime.now(timezone.utc).isoformat()
+                with self.db.get_connection() as conn:
+                    t_cols = [c[1] for c in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+                    if "current_stage" in t_cols and "stop_reason" in t_cols:
+                        conn.execute("""
+                            UPDATE tasks
+                            SET status = 'WAITING_FOR_AGENT', current_stage = 'WAITING_FOR_AGENT',
+                                stop_reason = 'No enabled eligible execution agent is available.',
+                                last_heartbeat_at = ?
+                            WHERE task_id = ?
+                        """, (now, tid))
+                    else:
+                        conn.execute("""
+                            UPDATE tasks
+                            SET status = 'WAITING_FOR_AGENT'
+                            WHERE task_id = ?
+                        """, (tid,))
+                    conn.commit()
+
+                await self._emit_event(
+                    event_type="TASK_WAITING_FOR_AGENT",
+                    actor="orchestrator",
+                    task_id=tid,
+                    run_id=run_id,
+                    project_id=project_id,
+                    payload={
+                        "task_id": tid,
+                        "status": "WAITING_FOR_AGENT",
+                        "reason": "No enabled eligible execution agent is available."
+                    }
+                )
+                if not eligible_agents:
+                    break
+                await asyncio.sleep(0.5)
+                continue
+
             role = t.get("role") or "Security Researcher"
             now = datetime.now(timezone.utc).isoformat()
 
@@ -466,14 +578,15 @@ class CentralOrchestrator:
             with self.db.get_connection() as conn:
                 conn.execute("""
                     UPDATE tasks
-                    SET status = 'RUNNING', started_at = ?, last_heartbeat_at = ?, heartbeat_at = ?
+                    SET status = 'RUNNING', current_stage = 'ANALYZING', assigned_agent_id = ?,
+                        started_at = ?, last_heartbeat_at = ?, heartbeat_at = ?, stop_reason = NULL
                     WHERE task_id = ?
-                """, (now, now, now, tid))
+                """, (assigned_agent, now, now, now, tid))
                 conn.execute("""
                     UPDATE task_attempts
-                    SET status = 'RUNNING', start_time = ?, heartbeat_time = ?
+                    SET status = 'RUNNING', agent_id = ?, start_time = ?, heartbeat_time = ?
                     WHERE task_id = ? AND status = 'PENDING'
-                """, (now, now, tid))
+                """, (assigned_agent, now, now, tid))
                 conn.commit()
 
             await self._emit_event(

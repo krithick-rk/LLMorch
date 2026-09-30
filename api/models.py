@@ -99,6 +99,8 @@ class TaskSummary(BaseModel):
     parent_task_id: Optional[str] = None
     objective: str
     status: str
+    current_stage: Optional[str] = "QUEUED"
+    current_file: Optional[str] = None
     assigned_agent_id: Optional[str] = None
     retry_count: int = 0
     created_at: Optional[datetime] = None
@@ -125,6 +127,10 @@ class TaskDetail(TaskSummary):
     context: Optional[str] = None
     expected_evidence: Optional[str] = None
     workpackage_id: Optional[str] = None
+    workpackage_display_id: Optional[str] = None
+    objective_display_id: Optional[str] = None
+    current_function: Optional[str] = None
+    current_tool: Optional[str] = None
     elapsed_seconds: Optional[float] = None
     tokens_consumed: int = 0
     runs: List[RunSummary] = Field(default_factory=list)
@@ -133,6 +139,9 @@ class TaskDetail(TaskSummary):
     evidence: List[Dict[str, Any]] = Field(default_factory=list)
     hypotheses: List[Dict[str, Any]] = Field(default_factory=list)
     instructions: List[Dict[str, Any]] = Field(default_factory=list)
+    timeline: List[Dict[str, Any]] = Field(default_factory=list)
+    communications: List[Dict[str, Any]] = Field(default_factory=list)
+    budget: Dict[str, Any] = Field(default_factory=dict)
     errors: List[str] = Field(default_factory=list)
     current_state: Optional[str] = None
     stopped_at: Optional[datetime] = None
@@ -140,6 +149,7 @@ class TaskDetail(TaskSummary):
     checkpoint_count: int = 0
     manually_stopped: bool = False
     part_of_stopped_run: bool = False
+    is_reconciling: bool = False
     last_agent_state: Optional[str] = None
     last_tool: Optional[str] = None
 
@@ -164,17 +174,31 @@ class TaskCreateRequest(BaseModel):
 
 class AgentSummary(BaseModel):
     agent_id: str
+    display_name: Optional[str] = None
     provider: str
     interface: str
+    cli_executable: Optional[str] = None
+    version: Optional[str] = "1.0.0"
     capabilities: List[str] = Field(default_factory=list)
     health: str = "UNKNOWN"
     role: str = "general_analysis"
     status: str = "ACTIVE"
     enabled: bool = True
+    availability: str = "READY"
+    auth_status: str = "AUTHENTICATED"
+    state_label: str = "Enabled + Ready"
+    supported_roles: List[str] = Field(default_factory=list)
+    supported_methods: List[str] = Field(default_factory=list)
+    supported_tools: List[str] = Field(default_factory=list)
+    current_workload: int = 0
     current_model_id: Optional[str] = None
     supported_models: List[str] = Field(default_factory=list)
     current_task_id: Optional[str] = None
+    current_task_display_id: Optional[str] = None
     current_task_objective: Optional[str] = None
+    current_file: Optional[str] = None
+    current_function: Optional[str] = None
+    current_tool: Optional[str] = None
     tokens_used: int = 0
     token_limit: Optional[int] = None
     tokens_remaining: Optional[int] = None
@@ -182,6 +206,9 @@ class AgentSummary(BaseModel):
     switch_count: int = 0
     executable: bool = True
     execution_disabled_reason: Optional[str] = None
+    execution_policy: str = "STANDARD"
+    last_heartbeat: Optional[datetime] = None
+    last_execution: Optional[datetime] = None
     registered_at: Optional[datetime] = None
 
 
@@ -206,10 +233,14 @@ class EventEnvelope(BaseModel):
 class FindingSummary(BaseModel):
     finding_id: str
     display_id: Optional[str] = None
+    project_id: Optional[str] = None
     task_id: Optional[str] = None
+    task_display_id: Optional[str] = None
     hypothesis: Optional[str] = None
     state: str = "OPEN"
     severity: Optional[str] = None
+    security_domain: Optional[str] = None
+    affected_component: Optional[str] = None
     requires_parent_context: bool = False
     context_explanation: Optional[str] = None
     created_at: Optional[datetime] = None
@@ -222,6 +253,34 @@ class FindingDetail(FindingSummary):
     affected_locations: List[Dict[str, Any]] = Field(default_factory=list)
     confidence: Optional[float] = None
     notes: Optional[str] = None
+    function_symbol: Optional[str] = None
+    line_range: Optional[str] = None
+    root_cause: Optional[str] = None
+    observed_behavior: Optional[str] = None
+    expected_behavior: Optional[str] = None
+    security_impact: Optional[str] = None
+    attack_scenario: Optional[str] = None
+    detection_method: Optional[str] = None
+    agent_id: Optional[str] = None
+    role: Optional[str] = None
+    attempt_id: Optional[str] = None
+    attempt_display_id: Optional[str] = None
+    tools: List[str] = Field(default_factory=list)
+    artifacts: List[Dict[str, Any]] = Field(default_factory=list)
+    evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    reproducer: Optional[str] = None
+    validator_verdict: Optional[str] = None
+    plan_id: Optional[str] = None
+    plan_display_id: Optional[str] = None
+    plan_version: Optional[str] = None
+    work_package_id: Optional[str] = None
+    work_package_display_id: Optional[str] = None
+    objective_id: Optional[str] = None
+    objective_display_id: Optional[str] = None
+    trace: List[Dict[str, str]] = Field(default_factory=list)
+    related_findings: List[str] = Field(default_factory=list)
+    related_gaps: List[str] = Field(default_factory=list)
+    analyst_feedback: Optional[str] = None
 
 
 # ─── Evidence ─────────────────────────────────────────────────────────────────
@@ -229,8 +288,12 @@ class FindingDetail(FindingSummary):
 class EvidenceSummary(BaseModel):
     evidence_id: str
     display_id: Optional[str] = None
+    project_id: Optional[str] = None
+    duplicate_of_id: Optional[str] = None
     finding_id: Optional[str] = None
+    finding_display_id: Optional[str] = None
     task_id: Optional[str] = None
+    task_display_id: Optional[str] = None
     source_tool: Optional[str] = None
     source_file: Optional[str] = None
     line_range: Optional[str] = None
@@ -247,6 +310,11 @@ class EvidenceSummary(BaseModel):
 class EvidenceDetail(EvidenceSummary):
     tool_version: Optional[str] = None
     command: Optional[str] = None
+    working_directory: Optional[str] = None
+    expected_behavior: Optional[str] = None
+    status: Optional[str] = None
+    attempt_id: Optional[str] = None
+    attempt_display_id: Optional[str] = None
     stdout: Optional[str] = None
     stderr: Optional[str] = None
     exit_code: Optional[int] = None

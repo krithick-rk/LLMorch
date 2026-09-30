@@ -63,3 +63,7 @@ artifacts/temp/
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Scratch temporary test scripts
+scratch/
+logs/application/

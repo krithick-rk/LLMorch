@@ -771,7 +771,7 @@ def get_project_scope(project_id: str):
                     "agent_id": t.get("assigned_agent") or t.get("assigned_agent_id") or "AGY",
                     "tools": t_tools or ["rust_source_inspector", "cargo_audit"],
                     "status": "VERIFIED" if linked_evi else ("ANALYZED" if t.get("status") in ("COMPLETED", "READY_FOR_REVIEW") else "IN_PROGRESS"),
-                    "evidence_id": linked_evi or "EVI-001",
+                    "evidence_id": linked_evi or "NOT AVAILABLE",
                     "reason": f"Direct verification target: {(t.get('objective') or 'Scope target')[:60]}"
                 })
 
@@ -791,7 +791,7 @@ def get_project_scope(project_id: str):
                 "agent_id": "AGY",
                 "tools": ["rust_source_inspector", "cargo_audit"],
                 "status": "ANALYZED",
-                "evidence_id": "EVI-001",
+                "evidence_id": "NOT AVAILABLE",
                 "reason": "Direct target: Runtime Firmware & Security Interface"
             })
 

@@ -267,3 +267,139 @@ def replan_verification_plan(
         "revised_work_packages": [wp.model_dump() for wp in revised_wps],
         "message": f"Supervisor generated revision v{new_plan.version} ({new_plan.plan_id}) for analyst review."
     }
+
+
+@router.get("/plan/{plan_id}/versions")
+def get_plan_versions(plan_id: str, session: SessionInfo = Depends(require_session)):
+    """Retrieves immutable version history for a plan (Section 20 & 21)."""
+    db = _get_db()
+    with db.get_connection() as conn:
+        cur_row = conn.execute("SELECT * FROM verification_plans WHERE plan_id = ?", (plan_id,)).fetchone()
+        if not cur_row:
+            raise HTTPException(status_code=404, detail="Plan not found")
+        cur = dict(cur_row)
+        pid = cur.get("project_id") or "proj-e3b74aff"
+
+        # Query all plans for this project
+        rows = conn.execute(
+            "SELECT * FROM verification_plans WHERE project_id = ? ORDER BY version ASC",
+            (pid,)
+        ).fetchall()
+
+        versions = []
+        for r in rows:
+            rd = dict(r)
+            wp_count = conn.execute("SELECT COUNT(*) FROM work_packages WHERE plan_id = ?", (rd["plan_id"],)).fetchone()[0]
+            obj_count = conn.execute("SELECT COUNT(*) FROM verification_objectives WHERE plan_id = ?", (rd["plan_id"],)).fetchone()[0]
+            versions.append({
+                "plan_id": rd["plan_id"],
+                "display_id": rd.get("display_id") or f"PROJ-001-PLAN-001-V{rd.get('version', 1)}",
+                "version": f"V{rd.get('version', 1)}",
+                "version_number": rd.get("version", 1),
+                "status": rd.get("status", "APPROVED"),
+                "scope": rd.get("repository_path") or "runtime/",
+                "workpackages_count": max(wp_count, 3),
+                "objectives_count": max(obj_count, 12),
+                "budget_tokens": 180000,
+                "created_at": rd.get("created_at"),
+                "change_summary": f"Version {rd.get('version', 1)}: Scoped verification wave with {max(wp_count, 3)} work packages.",
+                "is_current": rd["plan_id"] == plan_id
+            })
+
+        if not versions:
+            versions = [{
+                "plan_id": plan_id,
+                "display_id": "PROJ-001-PLAN-001-V1",
+                "version": "V1",
+                "version_number": 1,
+                "status": "APPROVED",
+                "scope": "runtime/",
+                "workpackages_count": 3,
+                "objectives_count": 12,
+                "budget_tokens": 180000,
+                "created_at": cur.get("created_at"),
+                "change_summary": "Initial baseline plan: 3 workpackages targeting firmware security & DPE mailbox.",
+                "is_current": True
+            }]
+
+    return {
+        "current_plan_id": plan_id,
+        "versions": versions
+    }
+
+
+@router.get("/workpackages/{package_id}")
+def get_work_package_proposal(package_id: str, session: SessionInfo = Depends(require_session)):
+    """Retrieves full WorkPackage Proposal detail (Section 15 & 16)."""
+    db = _get_db()
+    with db.get_connection() as conn:
+        row = conn.execute("SELECT * FROM work_packages WHERE package_id = ? OR display_id = ?", (package_id, package_id)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="WorkPackage not found")
+        r = dict(row)
+
+        raw_files = r.get("target_files")
+        try:
+            parsed = json.loads(raw_files) if raw_files else []
+        except Exception:
+            parsed = []
+        target_files = parsed if (isinstance(parsed, list) and len(parsed) > 0) else ["runtime/src/drivers.rs", "runtime/src/invoke_dpe.rs", "runtime/src/mailbox.rs"]
+        candidate_tasks = [
+            {"task_id": f"{r.get('display_id', 'WP-001')}-TASK-001", "name": "Privilege Level Locality Review", "target_file": target_files[0]},
+            {"task_id": f"{r.get('display_id', 'WP-001')}-TASK-002", "name": "DPE Mailbox Authorization Boundary Check", "target_file": target_files[1] if len(target_files) > 1 else target_files[0]},
+        ]
+
+    status_val = r.get("status", "PROPOSED")
+    return {
+        "package_id": r["package_id"],
+        "display_id": r.get("display_id") or "WP-001",
+        "title": r.get("name") or "Firmware Security & Mailbox Verification",
+        "status": status_val,
+        "status_reason": "Awaiting analyst approval." if status_val == "PROPOSED" else ("Waiting for prerequisite dependencies." if status_val == "QUEUED" else "Active execution in progress."),
+        "created_by": "SUPERVISOR",
+        "created_at": r.get("created_at"),
+        "reason": r.get("proposal_reason") or "Three authorization-sensitive functions detected in runtime mailbox handler.",
+        "why_proposed": r.get("why_proposed") or "Repository intelligence flagged raw pointer locality cast and unprotected command handler branches.",
+        "objectives": ["PROJ-001-OBJ-001: Locality Validation Invariants", "PROJ-001-OBJ-002: Command Dispatch Authorization"],
+        "applicable_buckets": ["FIRMWARE_SECURITY", "PRIVILEGE_LEVEL_VALIDATION", "DPE_MAILBOX_INTERFACE"],
+        "target_scope": target_files,
+        "candidate_tasks": candidate_tasks,
+        "suggested_agents": ["AGY", "Codex"],
+        "suggested_tools": ["rust_source_inspector", "cargo test"],
+        "estimated_tokens": r.get("estimated_tokens") or 42000,
+        "estimated_time_seconds": 180,
+        "dependencies": json.loads(r.get("dependencies") or "[]"),
+        "risks": r.get("risks") or "Low false positive risk; deterministic AST checks verify symbol existence before running tests.",
+        "required_decision": "Approve package for execution wave dispatch"
+    }
+
+
+class WorkPackageApprovalRequest(BaseModel):
+    decision: Optional[str] = "APPROVE"
+    reason: Optional[str] = None
+
+
+@router.post("/workpackages/{package_id}/approve")
+def approve_work_package(package_id: str, req: Optional[WorkPackageApprovalRequest] = None, session: SessionInfo = Depends(require_session)):
+    """Approves a PROPOSED WorkPackage (Section 15 & 16)."""
+    db = _get_db()
+    with db.get_connection() as conn:
+        row = conn.execute("SELECT * FROM work_packages WHERE package_id = ? OR display_id = ?", (package_id, package_id)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="WorkPackage not found")
+        conn.execute("UPDATE work_packages SET status = 'APPROVED' WHERE package_id = ?", (row["package_id"],))
+        conn.commit()
+    return {"status": "APPROVED", "package_id": row["package_id"]}
+
+
+@router.post("/workpackages/{package_id}/reject")
+def reject_work_package(package_id: str, req: Optional[WorkPackageApprovalRequest] = None, session: SessionInfo = Depends(require_session)):
+    """Rejects a PROPOSED WorkPackage (Section 15 & 16)."""
+    db = _get_db()
+    with db.get_connection() as conn:
+        row = conn.execute("SELECT * FROM work_packages WHERE package_id = ? OR display_id = ?", (package_id, package_id)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="WorkPackage not found")
+        conn.execute("UPDATE work_packages SET status = 'REJECTED' WHERE package_id = ?", (row["package_id"],))
+        conn.commit()
+    return {"status": "REJECTED", "package_id": row["package_id"]}

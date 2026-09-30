@@ -25,6 +25,11 @@ export function SettingsPage({ refreshSignal, activeProject }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
+  const [loggingConfig, setLoggingConfig] = useState(null);
+  const [cleaningLogs, setCleaningLogs] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState(null);
+  const [agentUpdating, setAgentUpdating] = useState(null);
+  const [projectPrefs, setProjectPrefs] = useState([]);
 
   // Form draft state
   const [draft, setDraft] = useState({
@@ -82,10 +87,11 @@ export function SettingsPage({ refreshSignal, activeProject }) {
     setLoading(true);
     setError(null);
     try {
-      const [sRes, mRes, aRes] = await Promise.all([
+      const [sRes, mRes, aRes, logRes] = await Promise.all([
         api.settings().catch(() => null),
         api.models().catch(() => ({ items: [] })),
         api.agents().catch(() => ({ items: [] })),
+        api.getLoggingConfig().catch(() => null),
       ]);
 
       if (sRes) {
@@ -93,10 +99,73 @@ export function SettingsPage({ refreshSignal, activeProject }) {
       }
       setModels(mRes?.items || []);
       setAgents(aRes?.items || []);
+      if (logRes) setLoggingConfig(logRes);
+
+      if (activeProject?.project_id) {
+        const prefRes = await api.getAgentPreferences(activeProject.project_id).catch(() => ({ preferences: [] }));
+        setProjectPrefs(prefRes?.preferences || []);
+      }
     } catch (err) {
       setError(err.message || 'Failed to load settings');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleToggleAgent = async (agentId, targetEnabled) => {
+    setAgentUpdating(agentId);
+    setError(null);
+    try {
+      if (targetEnabled) {
+        await api.enableAgent(agentId);
+      } else {
+        await api.disableAgent(agentId);
+      }
+      setAgents(prev => prev.map(a => a.agent_id === agentId ? { ...a, enabled: targetEnabled, availability: targetEnabled ? 'ENABLED' : 'DISABLED' } : a));
+      setMessage(`Agent ${agentId} ${targetEnabled ? 'ENABLED' : 'DISABLED'}. Scheduler routing updated.`);
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      setError(err.message || 'Failed to update agent status');
+    } finally {
+      setAgentUpdating(null);
+    }
+  };
+
+  const handleRunCleanup = async () => {
+    setCleaningLogs(true);
+    setCleanupResult(null);
+    setError(null);
+    try {
+      const res = await api.runLogCleanup();
+      setCleanupResult(res);
+      const updatedConfig = await api.getLoggingConfig().catch(() => null);
+      if (updatedConfig) setLoggingConfig(updatedConfig);
+      setMessage(`Log cleanup succeeded: freed ${(res.bytes_freed / 1024).toFixed(1)} KB across ${res.files_removed} files.`);
+      setTimeout(() => setMessage(null), 4000);
+    } catch (err) {
+      setError(err.message || 'Log cleanup failed');
+    } finally {
+      setCleaningLogs(false);
+    }
+  };
+
+  const handleSaveProjectPref = async (agentId, isAllowed, isPreferred) => {
+    if (!activeProject?.project_id) return;
+    try {
+      await api.saveAgentPreferences({
+        project_id: activeProject.project_id,
+        agent_id: agentId,
+        is_allowed: isAllowed,
+        is_preferred: isPreferred,
+        role_preference: 'VERIFICATION',
+        execution_preference: 'STANDARD',
+      });
+      const prefRes = await api.getAgentPreferences(activeProject.project_id).catch(() => ({ preferences: [] }));
+      setProjectPrefs(prefRes?.preferences || []);
+      setMessage(`Saved preference for ${agentId} on ${activeProject.name || activeProject.project_id}`);
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err) {
+      setError(err.message || 'Failed to save project preferences');
     }
   };
 
@@ -162,6 +231,12 @@ export function SettingsPage({ refreshSignal, activeProject }) {
       items: [
         { id: 'security-safety', label: 'Safety' },
         { id: 'security-sandbox', label: 'Sandbox' },
+      ]
+    },
+    {
+      group: 'LOGGING',
+      items: [
+        { id: 'dev-logging', label: 'Development Logging' },
       ]
     },
   ];
@@ -241,6 +316,7 @@ export function SettingsPage({ refreshSignal, activeProject }) {
                   return (
                     <div
                       key={item.id}
+                      id={`settings-tab-${item.id}`}
                       onClick={() => setActiveSection(item.id)}
                       style={{
                         padding: '6px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 12,
@@ -392,17 +468,142 @@ export function SettingsPage({ refreshSignal, activeProject }) {
 
           {/* AGENTS CONFIG */}
           {activeSection === 'agents-config' && (
-            <div className="panel" style={{ maxWidth: 740 }}>
-              <div className="panel-header" style={{ padding: '12px 18px', background: 'var(--bg-subtle)' }}>
-                <span className="panel-title">Agent Registry & Provider Policies</span>
+            <div className="panel" style={{ maxWidth: 840 }}>
+              <div className="panel-header" style={{ padding: '12px 18px', background: 'var(--bg-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="panel-title">Agent Registry & Execution Control</span>
+                <span className="badge badge-info" style={{ fontSize: 11 }}>SCHEDULER LINKED</span>
               </div>
               <div className="panel-body" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div style={{ background: 'var(--bg-subtle)', padding: 12, borderRadius: 4, border: '1px solid var(--border)', fontSize: 12 }}>
                   <div style={{ fontWeight: 700, color: 'var(--green)', marginBottom: 4 }}>✓ Active Enterprise Policy: Real Subprocesses Enabled</div>
-                  <div>AGY and Codex are authorized for file-bound task execution. Claude invocation is permanently disabled (0 invocations).</div>
+                  <div>AGY and Codex are authorized for file-bound task execution. Claude invocation is permanently disabled (0 invocations). Disabling an agent directly updates the scheduler: tasks waiting for disabled agents enter <code className="mono">WAITING_FOR_AGENT</code> without failing.</div>
                 </div>
 
-                <div className="form-group">
+                {/* Agents Management Table */}
+                <div style={{ border: '1px solid var(--border)', borderRadius: 4, overflow: 'hidden' }}>
+                  <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                        <th style={{ padding: '8px 12px' }}>Agent ID</th>
+                        <th style={{ padding: '8px 12px' }}>Display Name</th>
+                        <th style={{ padding: '8px 12px' }}>Provider</th>
+                        <th style={{ padding: '8px 12px' }}>CLI Executable</th>
+                        <th style={{ padding: '8px 12px' }}>Version</th>
+                        <th style={{ padding: '8px 12px' }}>Availability</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>Control</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {agents.map(ag => {
+                        const isClaude = ag.agent_id === 'agent-claude-01' || (ag.name && ag.name.toLowerCase().includes('claude'));
+                        const isEnabled = !isClaude && ag.enabled !== false && ag.is_enabled !== false;
+                        const isUpdating = agentUpdating === ag.agent_id;
+
+                        let statusBadge = <span className="badge badge-ready">Enabled + Ready</span>;
+                        if (isClaude) {
+                          statusBadge = <span className="badge badge-failed" title="Enterprise policy prohibits Claude execution">Blocked by policy</span>;
+                        } else if (!isEnabled) {
+                          statusBadge = <span className="badge badge-stopped">Disabled</span>;
+                        }
+
+                        return (
+                          <tr key={ag.agent_id} style={{ borderBottom: '1px solid var(--border-dim)' }}>
+                            <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                              {ag.agent_id}
+                            </td>
+                            <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text-bright)' }}>
+                              {ag.display_name || ag.name || ag.agent_id}
+                            </td>
+                            <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>
+                              {ag.provider || 'local'}
+                            </td>
+                            <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                              {ag.cli_executable || (ag.agent_id.includes('agy') ? 'agy' : (ag.agent_id.includes('codex') ? 'codex' : 'claude'))}
+                            </td>
+                            <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+                              {ag.version || 'v2.4.0'}
+                            </td>
+                            <td style={{ padding: '8px 12px' }}>
+                              {statusBadge}
+                            </td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                              {isClaude ? (
+                                <button className="btn btn-secondary btn-sm" disabled title="Claude invocation permanently disabled (0 invocations policy)" style={{ opacity: 0.5 }}>
+                                  Policy Locked
+                                </button>
+                              ) : isEnabled ? (
+                                <button
+                                  id={`btn-disable-${ag.agent_id}`}
+                                  className="btn btn-secondary btn-sm"
+                                  onClick={() => handleToggleAgent(ag.agent_id, false)}
+                                  disabled={isUpdating}
+                                  style={{ color: 'var(--red)', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+                                >
+                                  {isUpdating ? 'Updating...' : 'Disable'}
+                                </button>
+                              ) : (
+                                <button
+                                  id={`btn-enable-${ag.agent_id}`}
+                                  className="btn btn-primary btn-sm"
+                                  onClick={() => handleToggleAgent(ag.agent_id, true)}
+                                  disabled={isUpdating}
+                                >
+                                  {isUpdating ? 'Updating...' : 'Enable'}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Project-Safe Preferences (Scope Mode === 'project') */}
+                {scopeMode === 'project' && activeProject && (
+                  <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 4, padding: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-bright)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>🎯</span> Project Preferences for {activeProject.name || activeProject.project_id}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12 }}>
+                      Configure per-project agent preferences safely without modifying global agent availability.
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+                      {agents.filter(a => a.agent_id !== 'agent-claude-01').map(ag => {
+                        const pref = projectPrefs.find(p => p.agent_id === ag.agent_id);
+                        const isAllowed = pref ? Boolean(pref.is_allowed) : true;
+                        const isPreferred = pref ? Boolean(pref.is_preferred) : ag.agent_id === 'agent-agy-01';
+
+                        return (
+                          <div key={ag.agent_id} style={{ padding: 10, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                            <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 6 }}>{ag.display_name || ag.name}</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11 }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isAllowed}
+                                  onChange={e => handleSaveProjectPref(ag.agent_id, e.target.checked, isPreferred)}
+                                />
+                                <span>Allowed for Project</span>
+                              </label>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                <input
+                                  type="radio"
+                                  name="preferred_project_agent"
+                                  checked={isPreferred}
+                                  onChange={() => handleSaveProjectPref(ag.agent_id, true, true)}
+                                />
+                                <span>Preferred Agent</span>
+                              </label>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="form-group" style={{ marginTop: 8 }}>
                   <label className="form-label" style={{ fontWeight: 600 }}>Max Concurrent Agents</label>
                   <input
                     type="number"
@@ -551,6 +752,132 @@ export function SettingsPage({ refreshSignal, activeProject }) {
                   ✓ Deterministic evidence required for verification closure.<br />
                   ✓ Claude real execution count = 0 policy strictly enforced.
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* DEVELOPMENT LOGGING & RETENTION ENGINE */}
+          {activeSection === 'dev-logging' && (
+            <div className="panel" style={{ maxWidth: 840 }}>
+              <div className="panel-header" style={{ padding: '12px 18px', background: 'var(--bg-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="panel-title">Development Logging & 1.5 GB Retention Engine</span>
+                <span className="badge badge-info" style={{ fontSize: 11 }}>SYSTEM LOGS</span>
+              </div>
+              <div className="panel-body" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 18 }}>
+                
+                {/* Dual-Level Architecture Directory Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div style={{ padding: 14, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                      Global Application Logs
+                    </div>
+                    <div className="mono" style={{ fontSize: 12, color: 'var(--blue)', fontWeight: 600, wordBreak: 'break-all' }}>
+                      {loggingConfig?.global_log_dir || 'logs/application/'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+                      System-wide lifecycle events, scheduler dispatches, and supervisor decisions.
+                    </div>
+                  </div>
+
+                  <div style={{ padding: 14, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                      Project & Run Logs
+                    </div>
+                    <div className="mono" style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600, wordBreak: 'break-all' }}>
+                      {loggingConfig?.project_log_root ? `${loggingConfig.project_log_root}/${activeProject?.project_id || 'proj-id'}/` : `logs/projects/${activeProject?.project_id || 'PROJ'}/`}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+                      Isolated stdout/stderr, tool traces, and verification transcripts for each project.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Storage Quota Usage & Thresholds */}
+                <div style={{ padding: 16, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 4 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-bright)' }}>Global Storage Quota</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 8 }}>1.5 GB System Limit</span>
+                    </div>
+                    <div className="mono" style={{ fontSize: 12, fontWeight: 700, color: (loggingConfig?.global_usage_pct || 0) >= 90 ? 'var(--red)' : ((loggingConfig?.global_usage_pct || 0) >= 80 ? '#f59e0b' : 'var(--blue)') }}>
+                      {((loggingConfig?.global_used_bytes || 0) / (1024 * 1024)).toFixed(2)} MB / 1536.00 MB ({loggingConfig?.global_usage_pct != null ? loggingConfig.global_usage_pct.toFixed(2) : '0.00'}%)
+                    </div>
+                  </div>
+
+                  {/* Progress Bar with 80% and 90% Markers */}
+                  <div style={{ position: 'relative', height: 16, background: 'var(--bg-subtle)', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-dim)' }}>
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${Math.min(100, loggingConfig?.global_usage_pct || 1)}%`,
+                        background: (loggingConfig?.global_usage_pct || 0) >= 90 ? 'var(--red)' : ((loggingConfig?.global_usage_pct || 0) >= 80 ? '#f59e0b' : 'var(--blue)'),
+                        transition: 'width 0.4s ease'
+                      }}
+                    />
+                    <div style={{ position: 'absolute', left: '80%', top: 0, bottom: 0, width: 2, background: 'rgba(245, 158, 11, 0.7)' }} title="80% Warning Limit" />
+                    <div style={{ position: 'absolute', left: '90%', top: 0, bottom: 0, width: 2, background: 'rgba(239, 68, 68, 0.7)' }} title="90% Urgent Clean Limit" />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 6, fontFamily: 'var(--font-mono)' }}>
+                    <span>0 MB</span>
+                    <span style={{ color: '#f59e0b' }}>▲ 80% (1.20 GB) Warning</span>
+                    <span style={{ color: 'var(--red)' }}>▲ 90% (1.35 GB) Auto-Clean</span>
+                    <span>1.50 GB (100%)</span>
+                  </div>
+                </div>
+
+                {/* Retention Policy Details & Protections */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div style={{ padding: 14, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-bright)', marginBottom: 6 }}>
+                      ⏳ 3-Day Retention Policy
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      Completed runs and archived execution logs older than <strong>3 days</strong> are eligible for deterministic removal when quota thresholds are reached.
+                    </div>
+                  </div>
+
+                  <div style={{ padding: 14, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)', marginBottom: 6 }}>
+                      🛡️ Protected Invariants
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      Active runs (PID alive), evidence artifacts, findings dossiers, and SQLite database (<code className="mono">llmorch.db</code>) are <strong>never</strong> pruned.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cleanup Action Trigger */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 14, background: 'var(--bg-subtle)', border: '1px solid var(--border)', borderRadius: 4 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-bright)' }}>Manual Quota Enforcement</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                      Immediately run retention sweep to prune expired logs and compress older runs.
+                    </div>
+                  </div>
+                  <button
+                    id="btn-run-log-cleanup"
+                    className="btn btn-primary btn-sm"
+                    onClick={handleRunCleanup}
+                    disabled={cleaningLogs}
+                    style={{ fontWeight: 600, padding: '6px 16px' }}
+                  >
+                    {cleaningLogs ? 'Cleaning...' : '🧹 Run Cleanup Now'}
+                  </button>
+                </div>
+
+                {cleanupResult && (
+                  <div style={{ padding: 12, background: 'var(--bg-elevated)', border: '1px solid var(--green-border)', borderRadius: 4, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+                    <div style={{ color: 'var(--green)', fontWeight: 700, marginBottom: 4 }}>✓ Last Cleanup Result</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                      <div>Status: <span style={{ color: 'var(--text-bright)' }}>{cleanupResult.status}</span></div>
+                      <div>Files Removed: <span style={{ color: 'var(--text-bright)' }}>{cleanupResult.files_removed}</span></div>
+                      <div>Freed: <span style={{ color: 'var(--text-bright)' }}>{(cleanupResult.bytes_freed / 1024).toFixed(1)} KB</span></div>
+                      <div>Protected Active Runs: <span style={{ color: 'var(--green)' }}>{cleanupResult.active_runs_protected_count || 0}</span></div>
+                    </div>
+                  </div>
+                )}
+
               </div>
             </div>
           )}

@@ -60,8 +60,9 @@ export const api = {
   evidence:     (params = {}) => req('/evidence?' + new URLSearchParams(params)),
   evidenceItem: (id) => req(`/evidence/${id}`),
 
-  // Timeline
+  // Timeline & Events
   timeline: (params = {}) => req('/timeline?' + new URLSearchParams(params)),
+  events:   (params = {}) => req('/timeline?' + new URLSearchParams(params)),
 
   // Repository & Intake (Phase 9.2)
   repositories: (params = {}) => req('/repositories?' + new URLSearchParams(params)),
@@ -205,6 +206,33 @@ export const api = {
   projectLogs: (id) => req(`/projects/${id}/logs`),
   projectLogContent: (id, logName, lines = 200) => req(`/projects/${id}/logs/${logName}?lines=${lines}`),
   projectRunLogs: (id, runId, lines = 200) => req(`/projects/${id}/runs/${runId}/logs?lines=${lines}`),
+
+  // Phase 9.8 Final identity, agent control, interactive orchestration & logging
+  enableAgent: (agentId) => req(`/agents/${agentId}/enable`, { method: 'PATCH' }),
+  disableAgent: (agentId) => req(`/agents/${agentId}/disable`, { method: 'PATCH' }),
+  getAgentPreferences: (projectId) => req(`/agents/preferences/list?project_id=${projectId}`),
+  saveAgentPreferences: (body) => req(`/agents/preferences`, { method: 'POST', body: JSON.stringify(body) }),
+  listAgentHandoffs: (projectId) => req(`/agents/handoffs/list${projectId ? `?project_id=${projectId}` : ''}`),
+  createAgentHandoff: (body) => req(`/agents/handoff`, { method: 'POST', body: JSON.stringify(body) }),
+
+  getPlanVersions: (planId) => req(`/supervisor/plan/${planId}/versions`),
+  getWorkPackageProposal: (packageId) => req(`/supervisor/workpackages/${packageId}`),
+  approveWorkPackage: (packageId, body = {}) => req(`/supervisor/workpackages/${packageId}/approve`, { method: 'POST', body: JSON.stringify(body) }),
+  rejectWorkPackage: (packageId, body = {}) => req(`/supervisor/workpackages/${packageId}/reject`, { method: 'POST', body: JSON.stringify(body) }),
+
+  reconcileTask: (taskId) => req(`/tasks/${taskId}/reconcile`, { method: 'POST' }),
+  reconcileRuntime: () => req(`/debug/reconcile`, { method: 'POST' }),
+
+  getLoggingConfig: () => req(`/debug/logging/config`),
+  runLogCleanup: () => req(`/debug/logging/cleanup`, { method: 'POST' }),
+  getGlobalLogs: (params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return req(`/debug/logs/global${q ? `?${q}` : ''}`)
+  },
+  getProjectFilteredLogs: (projectId, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return req(`/debug/logs/project/${projectId}${q ? `?${q}` : ''}`)
+  },
 };
 
 export default api;

@@ -226,3 +226,114 @@ def get_project_diagnostics(
         }
     }
 
+
+@router.get("/logging/config")
+def get_logging_configuration(session: SessionInfo = Depends(require_session)) -> Dict[str, Any]:
+    """Retrieves log quota, directory locations, and retention status (Section 34, 35, 37)."""
+    from history.log_retention import log_manager
+    return log_manager.get_storage_stats()
+
+
+@router.post("/logging/cleanup")
+def trigger_log_cleanup(session: SessionInfo = Depends(require_session)) -> Dict[str, Any]:
+    """Executes deterministic log cleanup prioritizing completed runs, old projects, and old app logs (Section 34, 35, 36)."""
+    from history.log_retention import log_manager
+    db = _get_db()
+    with db.get_connection() as conn:
+        res = log_manager.run_cleanup(db_conn=conn, force_under_quota=True)
+    return res
+
+
+@router.get("/logs/global")
+def get_global_logs(
+    component: Optional[str] = None,
+    level: Optional[str] = None,
+    project_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    task_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    query: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    session: SessionInfo = Depends(require_session)
+) -> Dict[str, Any]:
+    """Reads filtered global application logs (Section 32)."""
+    from history.log_retention import log_manager
+    return log_manager.read_filtered_logs(
+        project_id=project_id,
+        run_id=run_id,
+        component=component,
+        level=level,
+        task_id=task_id,
+        agent_id=agent_id,
+        query=query,
+        limit=limit,
+        offset=offset
+    )
+
+
+@router.get("/logs/project/{project_id}")
+def get_project_logs(
+    project_id: str,
+    run_id: Optional[str] = None,
+    component: Optional[str] = None,
+    level: Optional[str] = None,
+    task_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    query: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    session: SessionInfo = Depends(require_session)
+) -> Dict[str, Any]:
+    """Reads filtered logs scoped strictly to the specified project (Section 33)."""
+    from history.log_retention import log_manager
+    return log_manager.read_filtered_logs(
+        project_id=project_id,
+        run_id=run_id,
+        component=component,
+        level=level,
+        task_id=task_id,
+        agent_id=agent_id,
+        query=query,
+        limit=limit,
+        offset=offset
+    )
+
+
+@router.post("/reconcile")
+def run_runtime_reconciliation(session: SessionInfo = Depends(require_session)) -> Dict[str, Any]:
+    """Reconciles stuck attempts and tasks across the entire database (Section 43)."""
+    db = _get_db()
+    repaired_tasks = 0
+    repaired_attempts = 0
+    repaired_runs = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    with db.get_connection() as conn:
+        # 1. Any task attempt RUNNING where parent task is terminal
+        term_tasks = conn.execute("SELECT task_id, status FROM tasks WHERE status IN ('COMPLETED', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'STOPPED')").fetchall()
+        for t in term_tasks:
+            t_status = "COMPLETED" if t["status"] in ("COMPLETED", "SUCCEEDED") else "FAILED"
+            res = conn.execute(
+                "UPDATE task_attempts SET status = ?, completed_at = ? WHERE task_id = ? AND status IN ('RUNNING', 'PENDING')",
+                (t_status, now_iso, t["task_id"])
+            )
+            repaired_attempts += res.rowcount
+
+        # 2. Any runs where all tasks are terminal but run is left RUNNING
+        runs = conn.execute("SELECT run_id, project_id FROM runs WHERE status = 'RUNNING'").fetchall()
+        for r in runs:
+            non_term = conn.execute("SELECT COUNT(*) FROM tasks WHERE project_id = ? AND status NOT IN ('COMPLETED', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'STOPPED')", (r["project_id"],)).fetchone()[0]
+            if non_term == 0:
+                conn.execute("UPDATE runs SET status = 'COMPLETED', end_time = ? WHERE run_id = ?", (now_iso, r["run_id"]))
+                repaired_runs += 1
+
+        conn.commit()
+
+    return {
+        "status": "RECONCILIATION_COMPLETED",
+        "repaired_attempts": repaired_attempts,
+        "repaired_runs": repaired_runs,
+        "timestamp": now_iso
+    }
+

@@ -1506,6 +1506,12 @@ class DatabaseService:
             except Exception:
                 pass
 
+            try:
+                from history.id_service import IdService
+                IdService.ensure_sequence_table(conn)
+            except Exception as e:
+                logger.warning("IdService ensure_sequence_table initialization note: %s", e)
+
             conn.commit()
             logger.info("Database schema initialized successfully (SoC Verification tables & Project Isolation verified).")
 

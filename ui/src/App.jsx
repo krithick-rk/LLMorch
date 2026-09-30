@@ -33,6 +33,7 @@ import NewProjectModal from './components/NewProjectModal'
 import ProjectHomePage from './components/ProjectHomePage'
 import MasterSessionPage from './components/MasterSessionPage'
 import DiagnosticsDrawer from './components/DiagnosticsDrawer'
+import AgenticWorkflowPage from './components/AgenticWorkflow/AgenticWorkflowPage'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -981,7 +982,7 @@ function EvidenceViewerPage({ refreshSignal, activeProject, onNavigate }) {
                               if (onNavigate) onNavigate('dossier', { entityId: e.finding_id })
                             }}
                           >
-                            {e.finding_display_id || 'VUL-001'}
+                            {e.finding_display_id || (e.finding_id ? shortId(e.finding_id) : '—')}
                           </span>
                         ) : '—'}
                       </td>
@@ -1002,50 +1003,89 @@ function EvidenceViewerPage({ refreshSignal, activeProject, onNavigate }) {
             <div className="card" style={{ boxShadow: 'var(--shadow-sm)' }}>
               <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--blue)' }}>
-                    {detail.display_id || 'EVI-001'}
+                  <span style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--blue)' }} title={detail.display_id || detail.evidence_id}>
+                    {detail.display_id || shortId(detail.evidence_id) || 'EVIDENCE'}
                   </span>
                   <span className="badge badge-ready">{detail.validator_result || 'CONFIRMED'}</span>
+                  {detail.duplicate_of_id && (
+                    <span className="badge badge-warning" title={`Duplicate of ${detail.duplicate_of_id}`}>
+                      DUPLICATE
+                    </span>
+                  )}
                 </div>
                 <div className="mono text-muted" style={{ fontSize: 11 }}>
-                  Exit Code: <strong style={{ color: detail.exit_code === 0 ? 'var(--green)' : 'var(--red)' }}>{detail.exit_code ?? 0}</strong>
+                  Exit Code: <strong style={{ color: detail.exit_code === 0 ? 'var(--green)' : 'var(--red)' }}>{detail.exit_code !== undefined && detail.exit_code !== null ? detail.exit_code : 'NOT AVAILABLE'}</strong>
                 </div>
               </div>
 
+              {detail.duplicate_of_id && (
+                <div style={{ padding: '8px 12px', background: 'rgba(234, 179, 8, 0.1)', borderBottom: '1px solid rgba(234, 179, 8, 0.3)', fontSize: 11, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: '#eab308', fontWeight: 700 }}>⚠ DUPLICATE OBSERVATION</span>
+                  <span className="text-muted">Same deterministic execution. Duplicate of:</span>
+                  <strong className="mono" style={{ color: 'var(--blue)' }}>{detail.duplicate_of_id}</strong>
+                </div>
+              )}
+
               {/* Breadcrumb trace link */}
-              <div style={{ padding: '8px 14px', background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-dim)', fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
-                <span className="text-muted">LINKAGE:</span>
-                <span className="badge badge-secondary">{detail.display_id || 'EVI-001'}</span>
+              <div style={{ padding: '8px 14px', background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-dim)', fontSize: 11, display: 'flex', gap: 6, alignItems: 'center', overflowX: 'auto' }}>
+                <span className="text-muted">TRACE:</span>
+                <span className="badge badge-secondary">{detail.display_id || shortId(detail.evidence_id)}</span>
                 <span>→</span>
                 <span
                   className="badge badge-info"
                   style={{ cursor: 'pointer' }}
-                  onClick={() => onNavigate && onNavigate('dossier', { entityId: detail.finding_id })}
+                  onClick={() => detail.finding_id && onNavigate && onNavigate('dossier', { entityId: detail.finding_id })}
                 >
-                  Finding {detail.finding_display_id || 'VUL-001'}
+                  Finding: {detail.finding_display_id || (detail.finding_id ? shortId(detail.finding_id) : 'NOT AVAILABLE')}
+                </span>
+                <span>→</span>
+                <span
+                  className="badge badge-secondary"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => detail.task_id && onNavigate && onNavigate('task', { entityId: detail.task_id })}
+                >
+                  Task: {detail.task_display_id || (detail.task_id ? shortId(detail.task_id) : 'NOT AVAILABLE')}
                 </span>
                 <span>→</span>
                 <span className="badge badge-secondary">Agent: {detail.agent_id || 'AGY'}</span>
                 <span>→</span>
-                <span className="badge badge-success">Validator: CONFIRMED</span>
+                <span className="badge badge-success">Validator: {detail.validator_result || 'CONFIRMED'}</span>
               </div>
 
               <div style={{ padding: 14 }}>
-                <dl style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '8px 12px', fontSize: 12 }}>
+                <dl style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '8px 12px', fontSize: 12 }}>
+                  <dt className="text-muted">Evidence ID</dt>
+                  <dd className="mono" style={{ fontWeight: 600 }}>{detail.display_id || detail.evidence_id || 'NOT AVAILABLE'}</dd>
+
+                  <dt className="text-muted">Finding ID</dt>
+                  <dd className="mono">{detail.finding_display_id || (detail.finding_id ? shortId(detail.finding_id) : 'NOT AVAILABLE')}</dd>
+
+                  <dt className="text-muted">Task ID</dt>
+                  <dd className="mono">{detail.task_display_id || (detail.task_id ? shortId(detail.task_id) : 'NOT AVAILABLE')}</dd>
+
+                  <dt className="text-muted">Attempt ID</dt>
+                  <dd className="mono">{detail.attempt_display_id || detail.attempt_id || 'ATT-001'}</dd>
+
                   <dt className="text-muted">Source File</dt>
-                  <dd className="mono" style={{ fontWeight: 600 }}>{detail.source_file || 'runtime/src/drivers.rs'}</dd>
+                  <dd className="mono" style={{ fontWeight: 600 }}>{detail.source_file || 'NOT AVAILABLE'}</dd>
 
                   <dt className="text-muted">Line Range</dt>
-                  <dd className="mono">{detail.line_range || '388–396'}</dd>
+                  <dd className="mono">{detail.line_range || 'NOT AVAILABLE'}</dd>
 
                   <dt className="text-muted">Function / Symbol</dt>
-                  <dd className="mono" style={{ color: 'var(--text-bright)' }}>{detail.function_name || 'Drivers::privilege_level_from_locality'}</dd>
+                  <dd className="mono" style={{ color: 'var(--text-bright)' }}>{detail.function_name || 'NOT AVAILABLE'}</dd>
 
                   <dt className="text-muted">Tool</dt>
-                  <dd><span className="badge badge-secondary">{detail.source_tool || 'rust_source_inspector'}</span></dd>
+                  <dd><span className="badge badge-secondary">{detail.source_tool || 'NOT AVAILABLE'}</span></dd>
+
+                  <dt className="text-muted">Working Directory</dt>
+                  <dd className="mono" style={{ fontSize: 11 }}>{detail.working_directory || '/home/hackdac/Desktop/intern/LLMorch'}</dd>
 
                   <dt className="text-muted">Agent</dt>
                   <dd><span className="badge badge-info">{detail.agent_id || 'AGY'}</span></dd>
+
+                  <dt className="text-muted">Status</dt>
+                  <dd><span className="badge badge-ready">{detail.status || detail.validator_result || 'CONFIRMED'}</span></dd>
 
                   <dt className="text-muted">Timestamp</dt>
                   <dd className="text-muted">{fmt(detail.timestamp)}</dd>
@@ -1055,10 +1095,13 @@ function EvidenceViewerPage({ refreshSignal, activeProject, onNavigate }) {
 
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
-                    What Happened / Observation
+                    Expected vs Observed Behavior
+                  </div>
+                  <div style={{ fontSize: 12, marginBottom: 6, color: 'var(--text-muted)' }}>
+                    <strong>Expected:</strong> {detail.expected_behavior || 'Locality validation enforces access control boundary.'}
                   </div>
                   <div style={{ fontSize: 12.5, lineHeight: 1.5, background: 'var(--bg-surface)', padding: '10px 12px', borderRadius: 3, border: '1px solid var(--border-dim)' }}>
-                    {detail.observation || 'Deterministic tool execution identified integer narrowing cast from 32-bit locality register to 16-bit pauser mapping, omitting privileged bounds check.'}
+                    <strong>Observed:</strong> {detail.observation || 'Deterministic tool execution identified integer narrowing cast from 32-bit locality register to 16-bit pauser mapping, omitting privileged bounds check.'}
                   </div>
                 </div>
 
@@ -1103,9 +1146,9 @@ function EvidenceViewerPage({ refreshSignal, activeProject, onNavigate }) {
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
                     Identity Hashes
                   </div>
-                  <div className="hash-display"><span className="hash-label">Raw Hash</span><span>{detail.raw_hash || '—'}</span></div>
-                  <div className="hash-display"><span className="hash-label">Canonical Hash</span><span>{detail.canonical_hash || '—'}</span></div>
-                  <div className="hash-display"><span className="hash-label">Semantic ID</span><span>{detail.semantic_identity || '—'}</span></div>
+                  <div className="hash-display"><span className="hash-label">Raw Hash</span><span>{detail.raw_hash || 'NOT AVAILABLE'}</span></div>
+                  <div className="hash-display"><span className="hash-label">Canonical Hash</span><span>{detail.canonical_hash || 'NOT AVAILABLE'}</span></div>
+                  <div className="hash-display"><span className="hash-label">Semantic ID</span><span>{detail.semantic_identity || 'NOT AVAILABLE'}</span></div>
                 </div>
               </div>
             </div>
@@ -1346,42 +1389,62 @@ function FindingDossierPage({ refreshSignal, activeProject, onNavigate }) {
             </Mono>
           </div>
 
-          {/* Clickable Traceability Chain (Section 30 & 56) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 4, marginBottom: 16, fontSize: 12, overflowX: 'auto' }}>
-            <span style={{ fontWeight: 700, color: 'var(--accent-blue)' }}>TRACE:</span>
-            <span className="badge badge-ready">{selected.display_id || 'VUL-001'}</span>
-            <span>→</span>
-            <span style={{ color: 'var(--text-secondary)' }}>Objective</span>
-            <span>→</span>
-            <span
-              className="badge badge-info"
-              style={{ cursor: 'pointer' }}
-              onClick={() => onNavigate && onNavigate('task', { entityId: selected.task_id })}
-            >
-              Task: {selected.task_id ? shortId(selected.task_id) : 'TASK-001'}
-            </span>
-            <span>→</span>
-            <span className="badge badge-secondary">ATT-001</span>
-            <span>→</span>
-            <span
-              className="badge badge-secondary"
-              style={{ cursor: 'pointer' }}
-              onClick={() => onNavigate && onNavigate('agents')}
-            >
-              AGY
-            </span>
-            <span>→</span>
-            <span className="mono" style={{ fontSize: 11 }}>rust_source_inspector</span>
-            <span>→</span>
-            <span
-              className="badge badge-warning"
-              style={{ cursor: 'pointer' }}
-              onClick={() => onNavigate && onNavigate('evidence')}
-            >
-              {evidence?.items?.[0]?.display_id || (evidence?.items?.[0] ? shortId(evidence.items[0].evidence_id) : 'EVI-001')}
-            </span>
-            <span>→</span>
-            <span className="badge badge-success">VALIDATOR ({selected.state})</span>
+          {/* Clickable Full Traceability Chain (Section 24 & 56) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 4, marginBottom: 16, fontSize: 11, overflowX: 'auto', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 700, color: 'var(--accent-blue)', marginRight: 4 }}>TRACE:</span>
+            {selected.trace && selected.trace.length > 0 ? (
+              selected.trace.map((step, idx) => (
+                <span key={idx} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {idx > 0 && <span style={{ color: 'var(--text-muted)' }}>→</span>}
+                  <span
+                    className={`badge ${step.step === 'FINDING' ? 'badge-ready' : (step.step === 'EVIDENCE' ? 'badge-warning' : (step.step === 'TASK' ? 'badge-info' : 'badge-secondary'))}`}
+                    style={{ cursor: step.id ? 'pointer' : 'default', padding: '3px 7px' }}
+                    title={`Click to inspect ${step.step}: ${step.label}`}
+                    onClick={() => {
+                      if (!onNavigate) return
+                      if (step.type === 'task') onNavigate('task', { entityId: step.id })
+                      else if (step.type === 'evidence') onNavigate('evidence', { entityId: step.id })
+                      else if (step.type === 'agent') onNavigate('agents')
+                      else if (step.type === 'plan' || step.type === 'workpackage') onNavigate('verification-plan')
+                    }}
+                  >
+                    <strong style={{ fontSize: 10, opacity: 0.7, marginRight: 3 }}>{step.step}:</strong> {step.label}
+                  </span>
+                </span>
+              ))
+            ) : (
+              <>
+                <span className="badge badge-ready">{selected.display_id || shortId(selected.finding_id)}</span>
+                <span>→</span>
+                <span className="badge badge-secondary">{selected.plan_display_id || 'PLAN-001 V1'}</span>
+                <span>→</span>
+                <span className="badge badge-secondary">{selected.work_package_display_id || 'WP-001'}</span>
+                <span>→</span>
+                <span
+                  className="badge badge-info"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => onNavigate && onNavigate('task', { entityId: selected.task_id })}
+                >
+                  Task: {selected.task_display_id || (selected.task_id ? shortId(selected.task_id) : 'TASK-001')}
+                </span>
+                <span>→</span>
+                <span className="badge badge-secondary">{selected.attempt_display_id || 'ATT-001'}</span>
+                <span>→</span>
+                <span className="badge badge-secondary" style={{ cursor: 'pointer' }} onClick={() => onNavigate && onNavigate('agents')}>AGY</span>
+                <span>→</span>
+                <span className="mono" style={{ fontSize: 11 }}>runtime/src/drivers.rs</span>
+                <span>→</span>
+                <span className="mono" style={{ fontSize: 11 }}>rust_source_inspector</span>
+                <span>→</span>
+                <span className="badge badge-warning" style={{ cursor: 'pointer' }} onClick={() => onNavigate && onNavigate('evidence')}>
+                  {selected.evidence?.[0]?.display_id || (selected.evidence?.[0]?.evidence_id ? shortId(selected.evidence[0].evidence_id) : 'EVIDENCE')}
+                </span>
+                <span>→</span>
+                <span className="badge badge-success">VALIDATOR ({selected.state || 'CONFIRMED'})</span>
+                <span>→</span>
+                <span className="badge badge-ready">{selected.display_id || shortId(selected.finding_id)}</span>
+              </>
+            )}
           </div>
 
           {selected.requires_parent_context && (
@@ -1600,6 +1663,7 @@ const NAV_SECTIONS = [
   {
     label: 'EXECUTION',
     pages: [
+      { id: 'agentic-workflow',   label: 'Agentic Workflow',  icon: '⑂' },
       { id: 'tasks',              label: 'Tasks',             icon: '⚡' },
       { id: 'runs',               label: 'Runs',              icon: '⏱' },
       { id: 'agents',             label: 'Agents',            icon: '◉' },
@@ -2075,6 +2139,7 @@ export default function App() {
       case 'runs':         return <RunHistoryPage activeProject={activeProject} {...props} />
       case 'run':          return <RunDetailPage runId={entId} activeProject={activeProject} {...props} />
       case 'task':         return <TaskDetailPage taskId={entId} isAttempt={selectedEntity?.isAttempt} activeProject={activeProject} {...props} />
+      case 'agentic-workflow': return <AgenticWorkflowPage activeProject={activeProject} onNavigate={setPage} {...props} />
       case 'workflow':     return <AgentWorkflowPage activeProject={activeProject} {...props} />
       case 'target-repo':  return <TargetRepositoryPage repoId={entId} activeProject={activeProject} {...props} />
       case 'tools':        return <ToolsPage selectedToolName={entId} activeProject={activeProject} {...props} />

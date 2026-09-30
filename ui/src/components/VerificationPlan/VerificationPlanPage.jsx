@@ -75,6 +75,67 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
   const [showPreflight, setShowPreflight] = useState(false)
   const [approvingState, setApprovingState] = useState('IDLE') // IDLE | STARTING | RUNNING | ERROR
   const [approvalError, setApprovalError] = useState(null)
+  const [showPlanModal, setShowPlanModal] = useState(false)
+  const [planVersions, setPlanVersions] = useState([])
+  const [loadingPlanVersions, setLoadingPlanVersions] = useState(false)
+  const [selectedWpProposal, setSelectedWpProposal] = useState(null)
+  const [wpProposalDetail, setWpProposalDetail] = useState(null)
+  const [loadingProposal, setLoadingProposal] = useState(false)
+
+  const handleOpenPlanModal = async () => {
+    setShowPlanModal(true)
+    if (selectedPlan?.plan_id) {
+      setLoadingPlanVersions(true)
+      try {
+        const res = await api.getPlanVersions(selectedPlan.plan_id)
+        setPlanVersions(res.versions || [])
+      } catch (e) {
+        console.error("Failed to load plan versions:", e)
+      } finally {
+        setLoadingPlanVersions(false)
+      }
+    }
+  }
+
+  const handleOpenWpProposal = async (wp) => {
+    setSelectedWpProposal(wp)
+    setLoadingProposal(true)
+    try {
+      const res = await api.getWorkPackageProposal(wp.package_id)
+      setWpProposalDetail(res)
+    } catch (e) {
+      console.error("Failed to load workpackage proposal:", e)
+      setWpProposalDetail(wp)
+    } finally {
+      setLoadingProposal(false)
+    }
+  }
+
+  const handleApproveWp = async (pkgId) => {
+    try {
+      await api.approveWorkPackage(pkgId)
+      setActionMsg(`WorkPackage ${pkgId} approved for execution dispatch.`)
+      if (selectedPlan?.plan_id) await loadPlanDetail(selectedPlan.plan_id)
+      setSelectedWpProposal(null)
+      setWpProposalDetail(null)
+      setTimeout(() => setActionMsg(null), 3000)
+    } catch (e) {
+      alert(`Approval error: ${e.message}`)
+    }
+  }
+
+  const handleRejectWp = async (pkgId) => {
+    try {
+      await api.rejectWorkPackage(pkgId)
+      setActionMsg(`WorkPackage ${pkgId} rejected.`)
+      if (selectedPlan?.plan_id) await loadPlanDetail(selectedPlan.plan_id)
+      setSelectedWpProposal(null)
+      setWpProposalDetail(null)
+      setTimeout(() => setActionMsg(null), 3000)
+    } catch (e) {
+      alert(`Rejection error: ${e.message}`)
+    }
+  }
 
   const loadData = useCallback(async () => {
     try {
@@ -266,9 +327,27 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
               </span>
               <span className="badge badge-ready" style={{ fontSize: 10 }}>ISOLATED SCOPE</span>
               {selectedPlan && (
-                <span className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                  Plan v{selectedPlan.version || 1}
-                </span>
+                <button
+                  id="btn-plan-versions"
+                  className="btn btn-ghost btn-sm mono"
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--blue)',
+                    border: '1px solid var(--border-dim)',
+                    padding: '2px 8px',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4
+                  }}
+                  onClick={handleOpenPlanModal}
+                  title="View Plan Versions & Scope Snapshot"
+                >
+                  <span>📋</span>
+                  <span>Plan v{selectedPlan.version || 1}</span>
+                  <span style={{ fontSize: 9, opacity: 0.7 }}>▾</span>
+                </button>
               )}
             </div>
             <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-bright)', margin: '0 0 6px 0' }}>
@@ -948,29 +1027,53 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
                   </thead>
                   <tbody>
                     {(workPackages.length > 0 ? workPackages : [
-                      { package_id: 'wp-sec-01', bucket: 'SECURITY', objective: 'Verify DPE authorization check and mailbox command parsing', target_files: ['runtime/src/dpe.rs', 'runtime/src/invoke_dpe.rs'], tier: 'EXPENSIVE', agent: 'AGY', tool: 'rust_source_inspector', status: 'COMPLETED' },
-                      { package_id: 'wp-sec-02', bucket: 'SECURITY', objective: 'Audit mailbox error response generation and bounds checking', target_files: ['runtime/src/drivers.rs'], tier: 'MODERATE', agent: 'Codex', tool: 'cargo_audit', status: 'RUNNING' },
-                      { package_id: 'wp-boot-01', bucket: 'BOOT', objective: 'Verify firmware manifest verification and PCR extension ladder', target_files: ['runtime/src/main.rs'], tier: 'MODERATE', agent: 'AGY', tool: 'rust_source_inspector', status: 'COMPLETED' },
-                    ]).map((wp) => (
-                      <tr key={wp.package_id}>
-                        <td className="mono" style={{ fontWeight: 600 }}>{wp.package_id}</td>
-                        <td style={{ fontSize: 11 }}>{wp.bucket}</td>
-                        <td>
-                          <div style={{ fontWeight: 600, color: 'var(--text-bright)' }}>{wp.objective}</div>
-                          {wp.target_files && (
-                            <div className="mono text-muted" style={{ fontSize: 11, marginTop: 2 }}>
-                              Files: {Array.isArray(wp.target_files) ? wp.target_files.join(', ') : wp.target_files}
-                            </div>
-                          )}
-                        </td>
-                        <td><span className="badge badge-neutral mono" style={{ fontSize: 10 }}>{wp.tier || 'MODERATE'}</span></td>
-                        <td>
-                          <div className="mono" style={{ fontSize: 11, color: 'var(--blue)' }}>{wp.agent || 'AGY'}</div>
-                          <div className="mono text-muted" style={{ fontSize: 10 }}>{wp.tool || 'rust_source_inspector'}</div>
-                        </td>
-                        <td><StatusPill status={wp.status || 'QUEUED'} /></td>
-                      </tr>
-                    ))}
+                      { package_id: 'wp-sec-01', display_id: 'PROJ-001-WP-001', bucket: 'SECURITY', objective: 'Verify DPE authorization check and mailbox command parsing', target_files: ['runtime/src/dpe.rs', 'runtime/src/invoke_dpe.rs'], tier: 'EXPENSIVE', agent: 'AGY', tool: 'rust_source_inspector', status: 'COMPLETED' },
+                      { package_id: 'wp-sec-02', display_id: 'PROJ-001-WP-002', bucket: 'SECURITY', objective: 'Audit mailbox error response generation and bounds checking', target_files: ['runtime/src/drivers.rs'], tier: 'MODERATE', agent: 'Codex', tool: 'cargo_audit', status: 'PROPOSED' },
+                      { package_id: 'wp-boot-01', display_id: 'PROJ-001-WP-003', bucket: 'BOOT', objective: 'Verify firmware manifest verification and PCR extension ladder', target_files: ['runtime/src/main.rs'], tier: 'MODERATE', agent: 'AGY', tool: 'rust_source_inspector', status: 'COMPLETED' },
+                    ]).map((wp) => {
+                      const isProposed = (wp.status || 'QUEUED') === 'PROPOSED'
+                      return (
+                        <tr
+                          key={wp.package_id}
+                          onClick={() => handleOpenWpProposal(wp)}
+                          style={{ cursor: 'pointer', background: isProposed ? 'rgba(59, 130, 246, 0.05)' : undefined }}
+                        >
+                          <td className="mono" style={{ fontWeight: 600, color: 'var(--blue)' }}>
+                            {wp.display_id || wp.package_id}
+                          </td>
+                          <td style={{ fontSize: 11 }}>{wp.bucket}</td>
+                          <td>
+                            <div style={{ fontWeight: 600, color: 'var(--text-bright)' }}>{wp.objective}</div>
+                            {wp.target_files && (
+                              <div className="mono text-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                                Files: {Array.isArray(wp.target_files) ? wp.target_files.join(', ') : wp.target_files}
+                              </div>
+                            )}
+                          </td>
+                          <td><span className="badge badge-neutral mono" style={{ fontSize: 10 }}>{wp.tier || 'MODERATE'}</span></td>
+                          <td>
+                            <div className="mono" style={{ fontSize: 11, color: 'var(--blue)' }}>{wp.agent || 'AGY'}</div>
+                            <div className="mono text-muted" style={{ fontSize: 10 }}>{wp.tool || 'rust_source_inspector'}</div>
+                          </td>
+                          <td>
+                            {isProposed ? (
+                              <button
+                                className="btn btn-primary btn-sm"
+                                style={{ fontSize: 10, padding: '2px 8px' }}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleOpenWpProposal(wp)
+                                }}
+                              >
+                                Review Proposal
+                              </button>
+                            ) : (
+                              <StatusPill status={wp.status || 'QUEUED'} />
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -979,6 +1082,237 @@ export default function VerificationPlanPage({ planId, onNavigate, activeProject
         )}
 
       </div>
+
+      {/* ── Plan Version History & Scope Snapshot Modal ────────────────────── */}
+      {showPlanModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div className="card" style={{ width: 680, maxWidth: '90vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-bright)' }}>
+                  Plan Version History & Scope Snapshot
+                </div>
+                <div className="mono text-muted" style={{ fontSize: 11 }}>
+                  {selectedPlan?.display_id || selectedPlan?.plan_id || 'PROJ-001-PLAN-001'} (Current: v{selectedPlan?.version || 1})
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowPlanModal(false)}>✕</button>
+            </div>
+
+            <div className="card-body" style={{ padding: 20, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Immutable Scope Snapshot */}
+              <div style={{ padding: 14, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Immutable Scope Snapshot (v{selectedPlan?.version || 1})
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
+                  <div>Target Scope: <span className="mono" style={{ color: 'var(--blue)', fontWeight: 600 }}>{scopeData?.target_scope || 'runtime/'}</span></div>
+                  <div>Classification: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{scopeData?.classification || 'Rust Firmware'}</span></div>
+                  <div>Analyzed Files: <span className="mono" style={{ fontWeight: 600 }}>{scopeData?.analyzed_files_count || 148}</span></div>
+                  <div>Deferred Files: <span className="mono text-muted">{scopeData?.deferred_files_count || 1330}</span></div>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8 }}>
+                  Invariant: Verification plans freeze scope snapshots upon creation. Re-planning branches new revisions without mutating earlier baselines.
+                </div>
+              </div>
+
+              {/* Version History Table */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+                  Plan Revisions & History
+                </div>
+                {loadingPlanVersions ? (
+                  <Spinner />
+                ) : (
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 4, overflow: 'hidden' }}>
+                    <table className="table" style={{ width: '100%', fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ background: 'var(--bg-subtle)', textAlign: 'left' }}>
+                          <th style={{ padding: '6px 10px' }}>Version</th>
+                          <th style={{ padding: '6px 10px' }}>Plan ID</th>
+                          <th style={{ padding: '6px 10px' }}>WorkPackages</th>
+                          <th style={{ padding: '6px 10px' }}>Objectives</th>
+                          <th style={{ padding: '6px 10px' }}>Status</th>
+                          <th style={{ padding: '6px 10px' }}>Summary</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(planVersions.length > 0 ? planVersions : [
+                          { version: 'V1', display_id: 'PROJ-001-PLAN-001-V1', workpackages_count: 3, objectives_count: 12, status: 'APPROVED', change_summary: 'Initial baseline synthesis for firmware runtime.' }
+                        ]).map((ver, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid var(--border-dim)' }}>
+                            <td style={{ padding: '6px 10px', fontWeight: 700, color: 'var(--blue)' }}>{ver.version}</td>
+                            <td className="mono" style={{ padding: '6px 10px' }}>{ver.display_id || ver.plan_id}</td>
+                            <td className="mono" style={{ padding: '6px 10px' }}>{ver.workpackages_count}</td>
+                            <td className="mono" style={{ padding: '6px 10px' }}>{ver.objectives_count}</td>
+                            <td style={{ padding: '6px 10px' }}><StatusPill status={ver.status || 'APPROVED'} /></td>
+                            <td style={{ padding: '6px 10px', color: 'var(--text-secondary)' }}>{ver.change_summary}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="card-footer" style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowPlanModal(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── WorkPackage Proposal Detail Modal ───────────────────────────────── */}
+      {selectedWpProposal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div className="card" style={{ width: 720, maxWidth: '92vw', maxHeight: '88vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-bright)' }}>
+                    WorkPackage Proposal: {wpProposalDetail?.display_id || selectedWpProposal.display_id || selectedWpProposal.package_id}
+                  </span>
+                  <StatusPill status={wpProposalDetail?.status || selectedWpProposal.status || 'PROPOSED'} />
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                  {wpProposalDetail?.title || selectedWpProposal.objective}
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setSelectedWpProposal(null); setWpProposalDetail(null); }}>✕</button>
+            </div>
+
+            <div className="card-body" style={{ padding: 20, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {loadingProposal ? (
+                <Spinner />
+              ) : (
+                <>
+                  {/* Proposal Reason & Why Proposed */}
+                  <div style={{ padding: 12, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--blue)', textTransform: 'uppercase', marginBottom: 4 }}>
+                      Proposal Reason & Why Proposed
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-bright)', marginBottom: 6 }}>
+                      {wpProposalDetail?.reason || 'Three authorization-sensitive functions detected in runtime mailbox handler.'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      <strong>Context:</strong> {wpProposalDetail?.why_proposed || 'Repository intelligence flagged raw pointer locality cast and unprotected command handler branches.'}
+                    </div>
+                  </div>
+
+                  {/* Candidate Tasks */}
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>
+                      Candidate Tasks ({wpProposalDetail?.candidate_tasks?.length || 2})
+                    </div>
+                    <div style={{ border: '1px solid var(--border)', borderRadius: 4, overflow: 'hidden' }}>
+                      <table className="table" style={{ width: '100%', fontSize: 11 }}>
+                        <thead>
+                          <tr style={{ background: 'var(--bg-subtle)', textAlign: 'left' }}>
+                            <th style={{ padding: '6px 10px' }}>Task ID</th>
+                            <th style={{ padding: '6px 10px' }}>Name</th>
+                            <th style={{ padding: '6px 10px' }}>Target File</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(wpProposalDetail?.candidate_tasks || [
+                            { task_id: 'TASK-001', name: 'Privilege Level Locality Review', target_file: 'runtime/src/drivers.rs' },
+                            { task_id: 'TASK-002', name: 'Mailbox Command Authorization Check', target_file: 'runtime/src/invoke_dpe.rs' }
+                          ]).map((ct, idx) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid var(--border-dim)' }}>
+                              <td className="mono" style={{ padding: '6px 10px', color: 'var(--blue)' }}>{ct.task_id}</td>
+                              <td style={{ padding: '6px 10px', fontWeight: 600 }}>{ct.name}</td>
+                              <td className="mono text-muted" style={{ padding: '6px 10px' }}>{ct.target_file}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Target Scope Files & Tools */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div style={{ padding: 10, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                        Expected Target Files
+                      </div>
+                      <div className="mono" style={{ fontSize: 11, color: 'var(--text-bright)' }}>
+                        {(wpProposalDetail?.target_scope || ['runtime/src/drivers.rs', 'runtime/src/invoke_dpe.rs']).join(', ')}
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 10, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                        Suggested Agents & Tools
+                      </div>
+                      <div style={{ fontSize: 11 }}>
+                        Agents: <strong className="mono" style={{ color: 'var(--green)' }}>{(wpProposalDetail?.suggested_agents || ['AGY', 'Codex']).join(', ')}</strong><br />
+                        Tools: <span className="mono text-muted">{(wpProposalDetail?.suggested_tools || ['rust_source_inspector', 'cargo test']).join(', ')}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Estimated Tokens & Execution Bound */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                    <div style={{ padding: 8, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>ESTIMATED TOKENS</div>
+                      <div className="mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--blue)' }}>
+                        {fmtK(wpProposalDetail?.estimated_tokens || 42000)}
+                      </div>
+                    </div>
+                    <div style={{ padding: 8, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>ESTIMATED TIME</div>
+                      <div className="mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-bright)' }}>
+                        ~{wpProposalDetail?.estimated_time_seconds || 180}s
+                      </div>
+                    </div>
+                    <div style={{ padding: 8, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>RISK LEVEL</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b' }}>LOW / REVIEW</div>
+                    </div>
+                  </div>
+
+                  {/* Risks & Mitigation */}
+                  <div style={{ padding: 10, background: 'var(--bg-subtle)', border: '1px solid var(--border-dim)', borderRadius: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                      Risks & Mitigations
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      {wpProposalDetail?.risks || 'Low false positive risk; deterministic AST checks verify symbol existence before running tests.'}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="card-footer" style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  id="btn-approve-wp"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => handleApproveWp(selectedWpProposal.package_id)}
+                >
+                  ✓ Approve Package
+                </button>
+                <button
+                  id="btn-reject-wp"
+                  className="btn btn-secondary btn-sm"
+                  style={{ color: 'var(--red)', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+                  onClick={() => handleRejectWp(selectedWpProposal.package_id)}
+                >
+                  ✗ Reject Package
+                </button>
+              </div>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => { setSelectedWpProposal(null); setWpProposalDetail(null); }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

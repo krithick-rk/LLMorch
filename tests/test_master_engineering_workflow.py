@@ -195,27 +195,27 @@ def test_human_friendly_project_local_identifiers(clean_db, app_client):
     assert res_f.status_code == 200
     findings = res_f.json()["items"]
     assert len(findings) == 2
-    # Verify display IDs are assigned (e.g. VUL-001, VUL-002)
-    assert findings[0]["display_id"].startswith("VUL-")
-    assert findings[1]["display_id"].startswith("VUL-")
+    # Verify display IDs are assigned (e.g. PROJ-001-VUL-001 or VUL-001)
+    assert "VUL-" in findings[0]["display_id"]
+    assert "VUL-" in findings[1]["display_id"]
 
     # Query single finding
     res_f_single = app_client.get(f"/api/findings/{f1_id}")
     assert res_f_single.status_code == 200
-    assert res_f_single.json()["display_id"].startswith("VUL-")
+    assert "VUL-" in res_f_single.json()["display_id"]
 
     # Query evidence API
     res_e = app_client.get(f"/api/evidence?project_id={proj_id}")
     assert res_e.status_code == 200
     evis = res_e.json()["items"]
     assert len(evis) == 2
-    assert evis[0]["display_id"].startswith("EVI-")
-    assert evis[1]["display_id"].startswith("EVI-")
+    assert "EVI-" in evis[0]["display_id"]
+    assert "EVI-" in evis[1]["display_id"]
 
     # Query single evidence
     res_e_single = app_client.get(f"/api/evidence/{e1_id}")
     assert res_e_single.status_code == 200
-    assert res_e_single.json()["display_id"].startswith("EVI-")
+    assert "EVI-" in res_e_single.json()["display_id"]
 
 
 def test_claude_execution_strictly_zero():
